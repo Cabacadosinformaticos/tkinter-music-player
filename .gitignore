@@ -1,0 +1,36 @@
+# Editor and IDE files
+.idea/
+.vscode/
+~$*
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+
+# Build outputs
+bin/
+obj/
+build/
+dist/
+
+# Personal music (not part of the repository)
+music/*
+!music/.gitkeep
+!music/README.md
+*.mp3
+*.rar
+
+# Runtime data
+musicas_recentes.txt
+recent_songs.txt
+
+# Local database settings (copy db_config.example.ini to db_config.ini)
+db_config.ini
+
+# Agent files
+CLAUDE.md
+AGENTS.md
+.claude/
+.codex/
+.mcp.json
