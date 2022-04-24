@@ -63,6 +63,30 @@ def add_many_songs():
         # Add the songs to the listbox
         song_box.insert(END, song)
 
+# Delete A Song
+def delete_song():
+
+    # Calls function stop to stop the music
+    stop()
+
+    # Delete Currently Selected Song
+    song_box.delete(ANCHOR)
+
+    # Stop Music if it's playing
+    pygame.mixer.music.stop()
+
+# Delete All Songs from Playlist
+def delete_all_songs():
+
+    # Calls function stop to stop the music
+    stop()
+
+    # Delete All Songs
+    song_box.delete(0, END)
+
+    # Stop Music if it's playing
+    pygame.mixer.music.stop()
+
 # Play selected song
 def play():
 
@@ -213,6 +237,12 @@ def pause(is_paused):
         pygame.mixer.music.pause()
         paused = True
 
+# Create Volume Function
+def volume(X):
+
+    # Sets the volume according to volume_slider position
+    pygame.mixer.music.set_volume(volume_slider.get())
+
 # Create Master Frame
 master_frame = Frame(root)
 master_frame.pack(pady = 20, padx = 10)
@@ -255,5 +285,17 @@ my_menu.add_cascade(label = "Adicionar musicas", menu = add_song_menu)
 add_song_menu.add_command(label = "Adicionar uma música", command = add_song)
 # Add Many Songs to playlist
 add_song_menu.add_command(label = "Adicionar várias musicas", command = add_many_songs)
+
+# Create Delete Song Menu
+remove_song_menu = Menu(my_menu, tearoff=0)
+my_menu.add_cascade(label = "Eliminar musicas", menu = remove_song_menu)
+remove_song_menu.add_command(label = "Eliminar uma música", command = delete_song)
+remove_song_menu.add_command(label = "Eliminar todas as musicas", command = delete_all_songs)
+
+# Create Volume Label Frame
+volume_frame = LabelFrame(master_frame, text = 'Volume')
+volume_frame.grid(row = 0, column = 1, padx = 15)
+
+volume_slider.pack(pady = 10)
 
 root.mainloop()
