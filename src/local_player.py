@@ -1,6 +1,9 @@
 from tkinter import *
 import pygame
 from tkinter import filedialog
+import time
+from mutagen.mp3 import MP3
+import tkinter.ttk as ttk
 
 # Create the program's Window
 root = Tk()
@@ -109,6 +112,10 @@ def play():
 
     if playing == True:
 
+        # Reset Slider and Status Bar
+        status_bar.config(text=' ')
+        my_slider.config(value=0)
+
         # Get the current song tuple number
         active = song_box.curselection()
 
@@ -125,6 +132,9 @@ def play():
         pygame.mixer.music.play(loops=0)
 
     else:
+        # Reset Slider and Status Bar
+        status_bar.config(text=' ')
+        my_slider.config(value=0)
 
         # Grab song title from playlist
         active_song = song_box.get(ACTIVE)
@@ -135,15 +145,25 @@ def play():
         pygame.mixer.music.load(song)
         pygame.mixer.music.play(loops = 0)
 
+        # Call the play_time function to get song lenght
+        play_time()
+
         # Set Playing Variable To True
         playing = True
 
 # Stop playing current song
 def stop():
 
+    # Reset Slider and Status Bar
+    status_bar.config(text=' ')
+    my_slider.config(value=0)
+
     # Stop Song From Playing
     pygame.mixer.music.stop()
     song_box.selection_clear(ACTIVE)
+
+    # Clear The Status Bar
+    status_bar.config(text = '')
 
     # Set Stop Variable To True
     global stopped
@@ -155,6 +175,10 @@ def stop():
 
 # Play The Next Song in the playlist
 def next_song():
+
+    # Reset Slider and Status Bar
+    status_bar.config(text=' ')
+    my_slider.config(value=0)
 
     # Get the current song tuple number
     next_one = song_box.curselection()
@@ -192,6 +216,9 @@ def next_song():
 
 # Play Previous Song In Playlist
 def previous_song():
+    # Reset Slider and Status Bar
+    status_bar.config(text=' ')
+    my_slider.config(value=0)
 
     # Get the current song tuple number
     previous_one = song_box.curselection()
@@ -236,6 +263,88 @@ def pause(is_paused):
         # Pause
         pygame.mixer.music.pause()
         paused = True
+
+# Create slider function
+def slide(X):
+
+    # Gets song title from variable
+    global active_song
+    song = f'{path}{active_song}.mp3'
+
+    # Loads the info to the slider
+    pygame.mixer.music.load(song)
+    pygame.mixer.music.play(loops=0, start = int(my_slider.get()))
+
+# Grab Song Lenght Time Info
+def play_time():
+
+    # Check for double timing
+    if stopped:
+        return
+
+    # Grab Current Song Elapsed Time
+    current_time = pygame.mixer.music.get_pos() / 1000
+
+    # Gets song title from global variable
+    global active_song
+    # Add directory structure and mp3 to song title
+    song = f'{path}{active_song}.mp3'
+
+    # Get Song Length with Mutagen
+    song_mut = MP3(song)
+
+    # Get song Length
+    global song_length
+    song_length = song_mut.info.length
+
+    # Convert to Time Format
+    converted_song_length = time.strftime('%M:%S', time.gmtime(song_length))
+
+    # Increase current time by 1 second
+    current_time += 1
+
+    # Funcion that rules the music time
+    if int(my_slider.get()) == int(song_length):
+
+        # Output time to status bar
+        status_bar.config(text=f'Tempo de música: {converted_song_length} de {converted_song_length}    ')
+
+        # Play the next song if the actual song was ended
+        next_song()
+
+    elif paused:
+
+        # If music pause, play-time pause ans slider pause too
+        pass
+
+    elif int(my_slider.get()) == int(current_time):
+
+        # slider hasn't been moved
+
+        # Update Slider To position
+        slider_position = int(song_length)
+        my_slider.config(to=slider_position, value=int(current_time))
+
+    else:
+
+        # slider HAS been moved!
+
+        # Update Slider To position
+        slider_position = int(song_length)
+        my_slider.config(to=slider_position, value=int(my_slider.get()))
+
+        # Convert to time format
+        converted_current_time = time.strftime('%M:%S', time.gmtime(int(my_slider.get())))
+
+        # Output time to status bar
+        status_bar.config(text=f'Tempo de música: {converted_current_time} de {converted_song_length}    ')
+
+        # Move this thing along by one second
+        next_time = int(my_slider.get()) + 1
+        my_slider.config(value = next_time)
+
+    # update time
+    status_bar.after(1000, play_time)
 
 # Create Volume Function
 def volume(X):
@@ -292,10 +401,20 @@ my_menu.add_cascade(label = "Eliminar musicas", menu = remove_song_menu)
 remove_song_menu.add_command(label = "Eliminar uma música", command = delete_song)
 remove_song_menu.add_command(label = "Eliminar todas as musicas", command = delete_all_songs)
 
+# Create Music Position Slider
+my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, command = slide, length = 360)
+my_slider.grid(row = 1, column = 0, pady = 20)
+
 # Create Volume Label Frame
 volume_frame = LabelFrame(master_frame, text = 'Volume')
 volume_frame.grid(row = 0, column = 1, padx = 15)
 
+# Create Volume Slider
+volume_slider = ttk.Scale(volume_frame, from_ = 1, to = 0, orient = VERTICAL, value = 1, command = volume, length = 125)
 volume_slider.pack(pady = 10)
+
+# Create Status Bar
+status_bar = Label(root, text = '', bd = 1, relief = GROOVE, anchor = CENTER)
+status_bar.pack(fill = X, side = BOTTOM, ipady = 2)
 
 root.mainloop()
