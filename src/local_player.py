@@ -4,6 +4,7 @@ from tkinter import filedialog
 import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
+from datetime import date, datetime
 
 # Create the program's Window
 root = Tk()
@@ -131,6 +132,9 @@ def play():
         pygame.mixer.music.load(song)
         pygame.mixer.music.play(loops=0)
 
+        # Calls the Recent Music function
+        rec_music()
+
     else:
         # Reset Slider and Status Bar
         status_bar.config(text=' ')
@@ -150,6 +154,9 @@ def play():
 
         # Set Playing Variable To True
         playing = True
+
+        # Calls the Recent Music function
+        rec_music()
 
 # Stop playing current song
 def stop():
@@ -214,6 +221,9 @@ def next_song():
     # Set Active Bar to Next Song
     song_box.selection_set(next_one, last = None)
 
+    # Calls the Recent Music function
+    rec_music()
+
 # Play Previous Song In Playlist
 def previous_song():
     # Reset Slider and Status Bar
@@ -248,6 +258,9 @@ def previous_song():
 
     # Set Active Bar to Previous Song
     song_box.selection_set(previous_one, last=None)
+
+    # Calls the Recent Music function
+    rec_music()
 
 # Pause and Unpause The Current Song
 def pause(is_paused):
@@ -352,6 +365,80 @@ def volume(X):
     # Sets the volume according to volume_slider position
     pygame.mixer.music.set_volume(volume_slider.get())
 
+# Insert the played song info in the txt file
+def rec_music():
+
+    # Gets song title from global variable
+    global active_song
+
+    # Grab Current Time
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+
+    # Grab Current Date
+    today = date.today()
+    # dd/mm/YY
+    d1 = today.strftime("%d/%m/%Y")
+
+    # Convert the variables to str()
+    msg1 = str(active_song)
+    msg2 = str(current_time)
+    msg3 = str(d1)
+
+    # Opens the file as file with writing permission
+    arquivo = 'musicas_recentes.txt'
+    file = open(arquivo, 'a')
+
+    # Writes the message in the file
+    file.write("A musica %s foi ouvida ás %s, no dia %s\n" %(msg1, msg2, msg3))
+
+    # Closes the file
+    file.close()
+
+# Gets the song info from txt file and displays it in the screen
+def view_rec_songs():
+
+    # Toplevel object which will be treated as a new window
+    New_window = Toplevel(root)
+
+    # sets the title of the Toplevel widget
+    New_window.title("Histórico de musicas")
+
+    # sets the geometry of toplevel
+    New_window.geometry("1050x450")
+
+    # set minimum window size value
+    New_window.minsize(1050, 450)
+    # set maximum window size value
+    New_window.maxsize(1050, 450)
+
+    # A Label widget to show in toplevel
+    Label(New_window, text="Histórico de musicas", padx=5, pady=5).pack()
+
+    # Creation of the text area
+    txtarea = Text(New_window, width=125, height=25)
+    txtarea.pack(pady=0)
+
+    # Opens the file as ler with reading permission
+    arquivo = 'musicas_recentes.txt'
+    ler = open(arquivo, 'r')
+
+    # Reads the file and writes the content in the text area
+    msg = ler.read()
+    txtarea.insert(END, msg)
+
+    root.mainloop()
+
+# Delete the played song info from the txt file
+def delete_rec_songs():
+
+    # Opens the file as file with writing permission
+    arquivo = 'musicas_recentes.txt'
+    file = open(arquivo, 'w')
+
+    # Writes the message in the file
+    file.write("")
+
 # Create Master Frame
 master_frame = Frame(root)
 master_frame.pack(pady = 20, padx = 10)
@@ -400,6 +487,13 @@ remove_song_menu = Menu(my_menu, tearoff=0)
 my_menu.add_cascade(label = "Eliminar musicas", menu = remove_song_menu)
 remove_song_menu.add_command(label = "Eliminar uma música", command = delete_song)
 remove_song_menu.add_command(label = "Eliminar todas as musicas", command = delete_all_songs)
+
+# Create Historic Song Menu
+historic_songs_menu = Menu(my_menu, tearoff=0)
+my_menu.add_cascade(label = "Histórico de musicas", menu = historic_songs_menu)
+historic_songs_menu.add_command(label = "Ver histórico de musicas", command = view_rec_songs)
+historic_songs_menu.add_separator()
+historic_songs_menu.add_command(label = "Eliminar histórico de musicas", command = delete_rec_songs)
 
 # Create Music Position Slider
 my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, command = slide, length = 360)
