@@ -7,6 +7,8 @@ import tkinter.ttk as ttk
 from datetime import date, datetime
 import mysql.connector
 import pyodbc
+import os
+import configparser
 
 # Create the program's Window
 root = Tk()
@@ -42,9 +44,24 @@ stopped = False
 global paused
 paused = False
 
+# Absolute path to the config file, in the repo root (parent folder of src)
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'db_config.ini')
+
+# Check that the config file exists
+if not os.path.exists(CONFIG_FILE):
+    raise FileNotFoundError("db_config.ini not found. Copy db_config.example.ini to db_config.ini and fill in your database settings.")
+
+# Read the database settings from the config file
+config = configparser.ConfigParser()
+config.read(CONFIG_FILE)
+db_config = config['database']
+
+# Build the connection string from the settings
+conn_str = 'DRIVER={%s};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s' % (db_config['driver'], db_config['server'], db_config['database'], db_config['user'], db_config['password'])
+
 # Create Global Conn for the server connection
 global conn
-conn = pyodbc.connect('DRIVER={SQL Server};SERVER=your-server;DATABASE=your_database;UID=your_user;PWD=your_password')
+conn = pyodbc.connect(conn_str)
 print("conexão á DB executada com sucesso")
 
 # Add Song Function
