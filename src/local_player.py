@@ -5,11 +5,21 @@ import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
 from datetime import date, datetime
+import os
+
+# Repository root folder is the parent folder of this script's folder
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Folders and files used by the program
+IMAGES_DIR = os.path.join(BASE_DIR, 'assets', 'images')
+# Forward slashes so song.replace(path, "") keeps working
+MUSIC_DIR = os.path.join(BASE_DIR, 'music').replace('\\', '/')
+HISTORY_FILE = os.path.join(BASE_DIR, 'recent_songs.txt')
 
 # Create the program's Window
 root = Tk()
 root.title('Music Player')
-root.iconbitmap('assets/images/icon.ico')
+root.iconbitmap(os.path.join(IMAGES_DIR, 'icon.ico'))
 root.geometry("455x345")
 
 # set minimum window size value
@@ -30,7 +40,7 @@ global active_song
 
 # Create Global path Variable
 global path
-path = 'C:/Users/tiago/Downloads/Escola/P&A/PyCharm/Trabalhos no Python/Music Player (trabalho final de disciplina) (81744 - 81809)/Musicas/'
+path = MUSIC_DIR + '/'
 
 # Create Global Stopped Variable
 global stopped
@@ -386,7 +396,7 @@ def rec_music():
     msg3 = str(d1)
 
     # Opens the file as file with writing permission
-    arquivo = 'musicas_recentes.txt'
+    arquivo = HISTORY_FILE
     file = open(arquivo, 'a')
 
     # Writes the message in the file
@@ -420,7 +430,7 @@ def view_rec_songs():
     txtarea.pack(pady=0)
 
     # Opens the file as ler with reading permission
-    arquivo = 'musicas_recentes.txt'
+    arquivo = HISTORY_FILE
     ler = open(arquivo, 'r')
 
     # Reads the file and writes the content in the text area
@@ -433,7 +443,7 @@ def view_rec_songs():
 def delete_rec_songs():
 
     # Opens the file as file with writing permission
-    arquivo = 'musicas_recentes.txt'
+    arquivo = HISTORY_FILE
     file = open(arquivo, 'w')
 
     # Writes the message in the file
@@ -448,11 +458,11 @@ song_box = Listbox(master_frame, bg = "black", fg = "green", width = 60, selectb
 song_box.grid(row = 0, column = 0)
 
 # Create Player Control Buttons
-back_btn_img = PhotoImage(file = 'assets/images/previous.png')
-forward_btn_img = PhotoImage(file = 'assets/images/next.png')
-play_btn_img = PhotoImage(file = 'assets/images/play.png')
-pause_btn_img = PhotoImage(file = 'assets/images/pause.png')
-stop_btn_img = PhotoImage(file = 'assets/images/stop.png')
+back_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'previous.png'))
+forward_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'next.png'))
+play_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'play.png'))
+pause_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'pause.png'))
+stop_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'stop.png'))
 
 # Create Player Control Frame
 controls_frame = Frame(master_frame)
