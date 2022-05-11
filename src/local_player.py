@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Folders and files used by the program
 IMAGES_DIR = os.path.join(BASE_DIR, 'assets', 'images')
-# Forward slashes so song.replace(path, "") keeps working
+# Default folder shown when the file dialog opens
 MUSIC_DIR = os.path.join(BASE_DIR, 'music').replace('\\', '/')
 HISTORY_FILE = os.path.join(BASE_DIR, 'recent_songs.txt')
 
@@ -38,9 +38,12 @@ playing = False
 # Create Global active_song Variable
 global active_song
 
-# Create Global path Variable
-global path
-path = MUSIC_DIR + '/'
+# Create Global active_path Variable
+global active_path
+
+# Full file path of each listbox item, same order as the listbox
+global playlist
+playlist = []
 
 # Create Global Stopped Variable
 global stopped
@@ -50,32 +53,36 @@ stopped = False
 global paused
 paused = False
 
+# Add a full path to the playlist list and to the listbox
+def add_to_playlist(file_path):
+
+    # Do nothing when the dialog was cancelled
+    if file_path == '':
+        return
+
+    # Save the full path so the song can be loaded later
+    playlist.append(file_path)
+
+    # Show only the file name without extension in the listbox
+    song_name = os.path.splitext(os.path.basename(file_path))[0]
+    song_box.insert(END, song_name)
+
 # Add Song Function
 def add_song():
 
-    song = filedialog.askopenfilename(initialdir = 'C:\\Users\tiago\Downloads\Escola\P&A\PyCharm\Trabalhos no Python\Music Player (trabalho final de disciplina) (81744 - 81809)\Musicas', title = "Selecione a música", filetypes = (("mp3 Files", "*.mp3"), ))
+    song = filedialog.askopenfilename(initialdir = MUSIC_DIR, title = "Selecione a música", filetypes = (("mp3 Files", "*.mp3"), ))
 
-    # strip out the directory info and mp3 extension from the song name
-    global path
-    song = song.replace(path, "")
-    song = song.replace(".mp3", "")
-
-    # Add the song to listbox
-    song_box.insert(END, song)
+    # Add the song to the playlist
+    add_to_playlist(song)
 
 # Add many songs to playlist
 def add_many_songs():
 
-    songs = filedialog.askopenfilenames(initialdir = 'C:\\Users\tiago\Downloads\Escola\P&A\PyCharm\Trabalhos no Python\Music Player (trabalho final de disciplina) (81744 - 81809)\Musicas', title = "Selecione as musicas", filetypes = (("mp3 Files", "*.mp3"), ))
+    songs = filedialog.askopenfilenames(initialdir = MUSIC_DIR, title = "Selecione as musicas", filetypes = (("mp3 Files", "*.mp3"), ))
 
-    # Loop thru song list and replace directory info and mp3
+    # Loop thru the song list and add each one
     for song in songs:
-        global path
-        song = song.replace(path, "")
-        song = song.replace(".mp3", "")
-
-        # Add the songs to the listbox
-        song_box.insert(END, song)
+        add_to_playlist(song)
 
 # Delete A Song
 def delete_song():
@@ -83,8 +90,15 @@ def delete_song():
     # Calls function stop to stop the music
     stop()
 
-    # Delete Currently Selected Song
-    song_box.delete(ANCHOR)
+    # Get the selected song index, do nothing if nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        return
+
+    # Delete Currently Selected Song from the listbox and the playlist
+    song_box.delete(selected[0])
+    del playlist[selected[0]]
 
     # Stop Music if it's playing
     pygame.mixer.music.stop()
@@ -97,6 +111,9 @@ def delete_all_songs():
 
     # Delete All Songs
     song_box.delete(0, END)
+
+    # Clear the playlist list
+    playlist.clear()
 
     # Stop Music if it's playing
     pygame.mixer.music.stop()
@@ -118,8 +135,8 @@ def play():
     # Saves the song title
     global active_song
 
-    # Gets the music path
-    global path
+    # Gets the music full path
+    global active_path
 
     if playing == True:
 
@@ -135,11 +152,11 @@ def play():
 
         # Grab song title from playlist
         active_song = song_box.get(active)
-        # Add directory structure and mp3 to song title
-        song = f'{path}{active_song}.mp3'
+        # Grab the full path of the selected song
+        active_path = playlist[active[0]]
 
         # Load and play song
-        pygame.mixer.music.load(song)
+        pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops=0)
 
         # Calls the Recent Music function
@@ -152,11 +169,11 @@ def play():
 
         # Grab song title from playlist
         active_song = song_box.get(ACTIVE)
-        # Add directory structure and mp3 to song title
-        song = f'{path}{active_song}.mp3'
+        # Grab the full path of the active song
+        active_path = playlist[song_box.index(ACTIVE)]
 
         # Load and play song
-        pygame.mixer.music.load(song)
+        pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops = 0)
 
         # Call the play_time function to get song lenght
@@ -215,11 +232,12 @@ def next_song():
     # Grab song title from playlist
     global active_song
     active_song = song_box.get(next_one)
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Grab the full path of the next song
+    global active_path
+    active_path = playlist[next_one]
 
     # Load and play song
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
 
     # Move active bar in playlist listbox
@@ -253,11 +271,12 @@ def previous_song():
     # Grab song title from playlist
     global active_song
     active_song = song_box.get(previous_one)
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Grab the full path of the previous song
+    global active_path
+    active_path = playlist[previous_one]
 
     # Load and play song
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
 
     # Move active bar in playlist listbox
@@ -290,12 +309,11 @@ def pause(is_paused):
 # Create slider function
 def slide(X):
 
-    # Gets song title from variable
-    global active_song
-    song = f'{path}{active_song}.mp3'
+    # Gets the song full path from the global variable
+    global active_path
 
     # Loads the info to the slider
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0, start = int(my_slider.get()))
 
 # Grab Song Lenght Time Info
@@ -308,13 +326,11 @@ def play_time():
     # Grab Current Song Elapsed Time
     current_time = pygame.mixer.music.get_pos() / 1000
 
-    # Gets song title from global variable
-    global active_song
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Gets the song full path from the global variable
+    global active_path
 
     # Get Song Length with Mutagen
-    song_mut = MP3(song)
+    song_mut = MP3(active_path)
 
     # Get song Length
     global song_length
