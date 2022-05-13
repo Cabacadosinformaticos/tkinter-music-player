@@ -1,6 +1,7 @@
 from tkinter import *
 import pygame
 from tkinter import filedialog
+from tkinter import messagebox
 import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
@@ -87,14 +88,14 @@ def add_many_songs():
 # Delete A Song
 def delete_song():
 
-    # Calls function stop to stop the music
-    stop()
-
     # Get the selected song index, do nothing if nothing is selected
     selected = song_box.curselection()
 
     if selected == ():
         return
+
+    # Calls function stop to stop the music
+    stop()
 
     # Delete Currently Selected Song from the listbox and the playlist
     song_box.delete(selected[0])
@@ -138,22 +139,33 @@ def play():
     # Gets the music full path
     global active_path
 
+    # Do nothing when there is nothing to play
+    if song_box.size() == 0:
+        messagebox.showinfo("Music Player", "A playlist está vazia")
+        return
+
+    # Use the selected song, or the first one when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        index = 0
+        song_box.selection_set(index)
+    else:
+        index = selected[0]
+
     if playing == True:
 
         # Reset Slider and Status Bar
         status_bar.config(text=' ')
         my_slider.config(value=0)
 
-        # Get the current song tuple number
-        active = song_box.curselection()
-
         # Stop Song From Playing
         pygame.mixer.music.stop()
 
         # Grab song title from playlist
-        active_song = song_box.get(active)
+        active_song = song_box.get(index)
         # Grab the full path of the selected song
-        active_path = playlist[active[0]]
+        active_path = playlist[index]
 
         # Load and play song
         pygame.mixer.music.load(active_path)
@@ -168,9 +180,9 @@ def play():
         my_slider.config(value=0)
 
         # Grab song title from playlist
-        active_song = song_box.get(ACTIVE)
-        # Grab the full path of the active song
-        active_path = playlist[song_box.index(ACTIVE)]
+        active_song = song_box.get(index)
+        # Grab the full path of the selected song
+        active_path = playlist[index]
 
         # Load and play song
         pygame.mixer.music.load(active_path)
@@ -194,7 +206,6 @@ def stop():
 
     # Stop Song From Playing
     pygame.mixer.music.stop()
-    song_box.selection_clear(ACTIVE)
 
     # Clear The Status Bar
     status_bar.config(text = '')
@@ -210,14 +221,22 @@ def stop():
 # Play The Next Song in the playlist
 def next_song():
 
+    # Do nothing when the playlist is empty
+    if song_box.size() == 0:
+        return
+
     # Reset Slider and Status Bar
     status_bar.config(text=' ')
     my_slider.config(value=0)
 
-    # Get the current song tuple number
-    next_one = song_box.curselection()
-    # Add one to the current song number
-    next_one = next_one[0] + 1
+    # Get the current song number, start at the first song when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        next_one = 0
+    else:
+        # Add one to the current song number
+        next_one = selected[0] + 1
 
     # Creation of variable max_lenght
     max_lenght = song_box.size() - 1
@@ -254,19 +273,27 @@ def next_song():
 
 # Play Previous Song In Playlist
 def previous_song():
+    # Do nothing when the playlist is empty
+    if song_box.size() == 0:
+        return
+
     # Reset Slider and Status Bar
     status_bar.config(text=' ')
     my_slider.config(value=0)
 
-    # Get the current song tuple number
-    previous_one = song_box.curselection()
-    # Subtract one to the current song number
-    previous_one = previous_one[0] - 1
+    # Get the current song number, use the first song when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        previous_one = 0
+    else:
+        # Subtract one to the current song number
+        previous_one = selected[0] - 1
 
     # condition to prevent the function form an error
     if previous_one < 0:
 
-        previous_one = previous_one + 1
+        previous_one = 0
 
     # Grab song title from playlist
     global active_song
@@ -293,6 +320,10 @@ def previous_song():
 
 # Pause and Unpause The Current Song
 def pause(is_paused):
+
+    # Do nothing when no song is playing
+    if playing == False:
+        return
 
     global paused
     paused = is_paused
@@ -470,7 +501,7 @@ master_frame = Frame(root)
 master_frame.pack(pady = 20, padx = 10)
 
 # Create Playlist Box
-song_box = Listbox(master_frame, bg = "black", fg = "green", width = 60, selectbackground = "gray", selectforeground = "black")
+song_box = Listbox(master_frame, bg = "black", fg = "green", width = 60, selectbackground = "gray", selectforeground = "black", exportselection = False)
 song_box.grid(row = 0, column = 0)
 
 # Create Player Control Buttons
