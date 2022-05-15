@@ -38,9 +38,11 @@ playing = False
 
 # Create Global active_song Variable
 global active_song
+active_song = ''
 
 # Create Global active_path Variable
 global active_path
+active_path = ''
 
 # Full file path of each listbox item, same order as the listbox
 global playlist
@@ -338,14 +340,26 @@ def pause(is_paused):
         paused = True
 
 # Create slider function
-def slide(X):
+def slide(event):
+
+    # Do nothing when no song was ever loaded
+    if playing == False:
+        return
 
     # Gets the song full path from the global variable
     global active_path
 
+    # Do nothing when there is no active song path
+    if active_path == '':
+        return
+
     # Loads the info to the slider
     pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0, start = int(my_slider.get()))
+
+    # Keep the song paused when it was paused before the seek
+    if paused:
+        pygame.mixer.music.pause()
 
 # Grab Song Lenght Time Info
 def play_time():
@@ -553,8 +567,11 @@ historic_songs_menu.add_separator()
 historic_songs_menu.add_command(label = "Eliminar histórico de musicas", command = delete_rec_songs)
 
 # Create Music Position Slider
-my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, command = slide, length = 360)
+my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, length = 360)
 my_slider.grid(row = 1, column = 0, pady = 20)
+
+# Seek only when the user releases the slider, not when the program updates it
+my_slider.bind('<ButtonRelease-1>', slide)
 
 # Create Volume Label Frame
 volume_frame = LabelFrame(master_frame, text = 'Volume')
