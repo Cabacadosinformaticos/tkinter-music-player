@@ -56,6 +56,10 @@ stopped = False
 global paused
 paused = False
 
+# Id of the pending play_time timer, None when no timer is waiting
+global time_job
+time_job = None
+
 # Add a full path to the playlist list and to the listbox
 def add_to_playlist(file_path):
 
@@ -173,6 +177,9 @@ def play():
         pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops=0)
 
+        # Start a single timer loop for the new song
+        start_play_time()
+
         # Calls the Recent Music function
         rec_music()
 
@@ -190,8 +197,8 @@ def play():
         pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops = 0)
 
-        # Call the play_time function to get song lenght
-        play_time()
+        # Start a single timer loop for the new song
+        start_play_time()
 
         # Set Playing Variable To True
         playing = True
@@ -211,6 +218,13 @@ def stop():
 
     # Clear The Status Bar
     status_bar.config(text = '')
+
+    # Cancel the pending timer so no old loop keeps running
+    global time_job
+
+    if time_job is not None:
+        status_bar.after_cancel(time_job)
+        time_job = None
 
     # Set Stop Variable To True
     global stopped
@@ -261,6 +275,9 @@ def next_song():
     pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
 
+    # Start a single timer loop for the new song
+    start_play_time()
+
     # Move active bar in playlist listbox
     song_box.selection_clear(0, END)
 
@@ -307,6 +324,9 @@ def previous_song():
     # Load and play song
     pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
+
+    # Start a single timer loop for the new song
+    start_play_time()
 
     # Move active bar in playlist listbox
     song_box.selection_clear(0, END)
@@ -361,6 +381,17 @@ def slide(event):
     if paused:
         pygame.mixer.music.pause()
 
+# Cancel any pending timer and start a fresh play_time loop
+def start_play_time():
+
+    global time_job
+
+    if time_job is not None:
+        status_bar.after_cancel(time_job)
+        time_job = None
+
+    play_time()
+
 # Grab Song Lenght Time Info
 def play_time():
 
@@ -375,7 +406,13 @@ def play_time():
     global active_path
 
     # Get Song Length with Mutagen
-    song_mut = MP3(active_path)
+    try:
+        song_mut = MP3(active_path)
+    except Exception:
+        # The file could not be read, warn once and stop
+        messagebox.showerror("Music Player", "Não foi possível ler o ficheiro de música")
+        stop()
+        return
 
     # Get song Length
     global song_length
@@ -395,6 +432,9 @@ def play_time():
 
         # Play the next song if the actual song was ended
         next_song()
+
+        # next_song already started its own timer, so this loop must end here
+        return
 
     elif paused:
 
@@ -427,8 +467,9 @@ def play_time():
         next_time = int(my_slider.get()) + 1
         my_slider.config(value = next_time)
 
-    # update time
-    status_bar.after(1000, play_time)
+    # update time, keep the job id so it can be cancelled later
+    global time_job
+    time_job = status_bar.after(1000, play_time)
 
 # Create Volume Function
 def volume(X):
