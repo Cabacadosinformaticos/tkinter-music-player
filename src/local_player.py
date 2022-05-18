@@ -497,15 +497,9 @@ def rec_music():
     msg2 = str(current_time)
     msg3 = str(d1)
 
-    # Opens the file as file with writing permission
-    arquivo = HISTORY_FILE
-    file = open(arquivo, 'a')
-
-    # Writes the message in the file
-    file.write("A musica %s foi ouvida ás %s, no dia %s\n" %(msg1, msg2, msg3))
-
-    # Closes the file
-    file.close()
+    # Opens the file in append mode and writes the message in the file
+    with open(HISTORY_FILE, 'a', encoding='utf-8') as file:
+        file.write("A musica %s foi ouvida ás %s, no dia %s\n" %(msg1, msg2, msg3))
 
 # Gets the song info from txt file and displays it in the screen
 def view_rec_songs():
@@ -529,27 +523,35 @@ def view_rec_songs():
 
     # Creation of the text area
     txtarea = Text(New_window, width=125, height=25)
-    txtarea.pack(pady=0)
+    txtarea.pack(side=LEFT, pady=0)
 
-    # Opens the file as ler with reading permission
-    arquivo = HISTORY_FILE
-    ler = open(arquivo, 'r')
+    # Vertical scrollbar for the text area
+    scrollbar = Scrollbar(New_window, command=txtarea.yview)
+    scrollbar.pack(side=RIGHT, fill=Y)
 
-    # Reads the file and writes the content in the text area
-    msg = ler.read()
-    txtarea.insert(END, msg)
+    # Link the text area to the scrollbar
+    txtarea.config(yscrollcommand=scrollbar.set)
 
-    root.mainloop()
+    # Show the history when the file exists, a message when nothing was played
+    if os.path.exists(HISTORY_FILE):
+        # Opens the file with reading permission and reads the content
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as ler:
+            msg = ler.read()
+
+        # Writes the content in the text area
+        txtarea.insert(END, msg)
+    else:
+        txtarea.insert(END, "Ainda não há músicas no histórico")
+
+    # Make the text area read only
+    txtarea.config(state=DISABLED)
 
 # Delete the played song info from the txt file
 def delete_rec_songs():
 
-    # Opens the file as file with writing permission
-    arquivo = HISTORY_FILE
-    file = open(arquivo, 'w')
-
-    # Writes the message in the file
-    file.write("")
+    # Opens the file with writing permission, this truncates it
+    with open(HISTORY_FILE, 'w', encoding='utf-8'):
+        pass
 
 # Create Master Frame
 master_frame = Frame(root)
