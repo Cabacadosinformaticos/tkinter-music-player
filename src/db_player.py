@@ -1,6 +1,7 @@
 from tkinter import *
 import pygame
 from tkinter import filedialog
+from tkinter import messagebox
 import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
@@ -47,22 +48,52 @@ paused = False
 # Absolute path to the config file, in the repo root (parent folder of src)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'db_config.ini')
 
-# Check that the config file exists
-if not os.path.exists(CONFIG_FILE):
-    raise FileNotFoundError("db_config.ini not found. Copy db_config.example.ini to db_config.ini and fill in your database settings.")
-
-# Read the database settings from the config file
-config = configparser.ConfigParser()
-config.read(CONFIG_FILE)
-db_config = config['database']
-
-# Build the connection string from the settings
-conn_str = 'DRIVER={%s};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s' % (db_config['driver'], db_config['server'], db_config['database'], db_config['user'], db_config['password'])
-
-# Create Global Conn for the server connection
+# Create Global Conn for the server connection, created on first use
 global conn
-conn = pyodbc.connect(conn_str)
-print("conexão á DB executada com sucesso")
+conn = None
+
+# Flag to avoid repeating the database warning while a song keeps playing
+global db_warning_shown
+db_warning_shown = False
+
+# Create the connection to the database on first use
+def get_connection():
+
+    global conn
+
+    # Reuse the connection if it was already created
+    if conn is not None:
+        return conn
+
+    # Check that the config file exists
+    if not os.path.exists(CONFIG_FILE):
+        raise FileNotFoundError("Ficheiro db_config.ini não encontrado. Copie db_config.example.ini para db_config.ini e preencha os dados da base de dados.")
+
+    # Read the database settings from the config file
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE, encoding = 'utf-8')
+    db_config = config['database']
+
+    # Read the required settings, a missing key is reported to the user
+    try:
+        driver = db_config['driver']
+        server = db_config['server']
+        database = db_config['database']
+        user = db_config['user']
+        password = db_config['password']
+    except KeyError as error:
+        raise KeyError("Chave em falta no ficheiro db_config.ini: %s" % error)
+
+    # Build the connection string from the settings
+    conn_str = 'DRIVER={%s};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s' % (driver, server, database, user, password)
+
+    # Connect with a short timeout so the window does not lock up for long
+    try:
+        conn = pyodbc.connect(conn_str, timeout = 5)
+    except pyodbc.Error as error:
+        raise RuntimeError("Não foi possível ligar à base de dados: %s" % error)
+
+    return conn
 
 # Add Song Function
 def add_song():
@@ -411,22 +442,43 @@ def rec_music():
     msg2 = str(current_time)
     msg3 = str(d1)
 
-    # Gets the connection with the DB
-    global conn
-
-    # Creates the cursor
-    cursor = conn.cursor()
+    # Flag used to warn about the DB only once per failure
+    global db_warning_shown
 
     # Inserts the data in the DB
     command = '''INSERT INTO music_history (Music_name, Music_time, Music_date) VALUES (?, ?, ?)'''
     val = (msg1, msg2, msg3)
-    cursor.execute(command, val)
+    try:
+        # Gets the connection with the DB
+        global conn
+        conn = get_connection()
 
-    # Commit the transaction
-    cursor.commit()
+        # Creates the cursor
+        cursor = conn.cursor()
+        cursor.execute(command, val)
+
+        # Commit the transaction
+        cursor.commit()
+    except Exception as error:
+        # The music must keep playing, warn only the first time
+        if not db_warning_shown:
+            messagebox.showwarning("Music Player", "Não foi possível guardar o histórico: %s" % error)
+            db_warning_shown = True
+        return
+
+    # The write worked, allow a new warning if the DB fails again
+    db_warning_shown = False
 
 # Gets the song info from DB and displays it in the screen
 def view_rec_songs():
+
+    # Gets the connection with the DB before opening the window
+    global conn
+    try:
+        conn = get_connection()
+    except Exception as error:
+        messagebox.showerror("Music Player", str(error))
+        return
 
     # Toplevel object which will be treated as a new window
     New_window = Toplevel(root)
@@ -449,39 +501,47 @@ def view_rec_songs():
     txtarea = Text(New_window, width=125, height=25)
     txtarea.pack(pady=0)
 
-    # Gets the connection with the DB
-    global conn
-
-    # Creates the cursor
-    cursor = conn.cursor()
-
     # Gets the information from the DB
     command = '''SELECT Music_name, Music_time, Music_date FROM music_history ORDER BY Music_date, Music_time  ASC'''
-    cursor.execute(command)
-    for row in cursor:
+    try:
+        # Creates the cursor
+        cursor = conn.cursor()
+        cursor.execute(command)
+        for row in cursor:
 
-        # Creates the complete message
-        msg = "A musica %s foi ouvida ás %s, no dia %s\n" %(str(row.Music_name), str(row.Music_time), str(row.Music_date))
+            # Creates the complete message
+            msg = "A musica %s foi ouvida ás %s, no dia %s\n" %(str(row.Music_name), str(row.Music_time), str(row.Music_date))
 
-        # Writes the content in the text area
-        txtarea.insert(END, msg)
+            # Writes the content in the text area
+            txtarea.insert(END, msg)
+    except pyodbc.Error as error:
+        messagebox.showerror("Music Player", str(error))
 
-    root.mainloop()
+    # Make the text area read-only
+    txtarea.config(state = DISABLED)
 
 # Delete the played song info from the DB
 def delete_rec_songs():
+
     # Gets the connection with the DB
     global conn
-
-    # Creates the cursor
-    cursor = conn.cursor()
+    try:
+        conn = get_connection()
+    except Exception as error:
+        messagebox.showerror("Music Player", str(error))
+        return
 
     # Deletes the data from the table music_history
     command = '''DELETE FROM music_history'''
-    cursor.execute(command)
+    try:
+        # Creates the cursor
+        cursor = conn.cursor()
+        cursor.execute(command)
 
-    # Commit the transaction
-    cursor.commit()
+        # Commit the transaction
+        cursor.commit()
+    except pyodbc.Error as error:
+        messagebox.showerror("Music Player", str(error))
 
 # Create Master Frame
 master_frame = Frame(root)
