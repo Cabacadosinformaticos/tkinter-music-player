@@ -428,14 +428,11 @@ def rec_music():
     # Gets song title from global variable
     global active_song
 
-    # Grab Current Time
+    # Grab the current date and time from a single reading
     now = datetime.now()
-    current_time = now.strftime("%H:%M")
-
-    # Grab Current Date
-    today = date.today()
-    # dd/mm/YY
-    d1 = today.strftime("%d/%m/%Y")
+    # ISO formats, SQL Server converts them to DATE and TIME and they also sort as text
+    current_time = now.strftime("%H:%M:%S")
+    d1 = now.strftime("%Y-%m-%d")
 
     # Convert the variables to str()
     msg1 = str(active_song)
@@ -468,6 +465,15 @@ def rec_music():
 
     # The write worked, allow a new warning if the DB fails again
     db_warning_shown = False
+
+# Formats a DB value: date/time objects use the pattern, other types fall back to str()
+def format_value(value, pattern):
+
+    # pyodbc returns date and time objects, plain text columns return strings
+    if hasattr(value, 'strftime'):
+        return value.strftime(pattern)
+
+    return str(value)
 
 # Gets the song info from DB and displays it in the screen
 def view_rec_songs():
@@ -509,8 +515,8 @@ def view_rec_songs():
         cursor.execute(command)
         for row in cursor:
 
-            # Creates the complete message
-            msg = "A musica %s foi ouvida ás %s, no dia %s\n" %(str(row.Music_name), str(row.Music_time), str(row.Music_date))
+            # Creates the complete message, dates and times are formatted for display
+            msg = "A musica %s foi ouvida ás %s, no dia %s\n" %(str(row.Music_name), format_value(row.Music_time, "%H:%M"), format_value(row.Music_date, "%d/%m/%Y"))
 
             # Writes the content in the text area
             txtarea.insert(END, msg)
