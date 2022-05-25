@@ -5,8 +5,7 @@ from tkinter import messagebox
 import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
-from datetime import date, datetime
-import mysql.connector
+from datetime import datetime
 import pyodbc
 import os
 import configparser
