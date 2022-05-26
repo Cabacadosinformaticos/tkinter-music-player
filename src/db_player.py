@@ -5,15 +5,23 @@ from tkinter import messagebox
 import time
 from mutagen.mp3 import MP3
 import tkinter.ttk as ttk
-from datetime import datetime
-import pyodbc
+from datetime import date, datetime
 import os
+import pyodbc
 import configparser
+
+# Repository root folder is the parent folder of this script's folder
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Folders and files used by the program
+IMAGES_DIR = os.path.join(BASE_DIR, 'assets', 'images')
+# Default folder shown when the file dialog opens
+MUSIC_DIR = os.path.join(BASE_DIR, 'music').replace('\\', '/')
 
 # Create the program's Window
 root = Tk()
 root.title('Music Player')
-root.iconbitmap('assets/images/icon.ico')
+root.iconbitmap(os.path.join(IMAGES_DIR, 'icon.ico'))
 root.geometry("455x345")
 
 # set minimum window size value
@@ -31,10 +39,15 @@ playing = False
 
 # Create Global active_song Variable
 global active_song
+active_song = ''
 
-# Create Global path Variable
-global path
-path = 'C:/Users/tiago/Downloads/Escola/P&A/PyCharm/Trabalhos no Python/Music Player (trabalho final de disciplina) (81744 - 81809)/Musicas/'
+# Create Global active_path Variable
+global active_path
+active_path = ''
+
+# Full file path of each listbox item, same order as the listbox
+global playlist
+playlist = []
 
 # Create Global Stopped Variable
 global stopped
@@ -43,6 +56,10 @@ stopped = False
 # Create Global Pause Variable
 global paused
 paused = False
+
+# Id of the pending play_time timer, None when no timer is waiting
+global time_job
+time_job = None
 
 # Absolute path to the config file, in the repo root (parent folder of src)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'db_config.ini')
@@ -94,41 +111,52 @@ def get_connection():
 
     return conn
 
+# Add a full path to the playlist list and to the listbox
+def add_to_playlist(file_path):
+
+    # Do nothing when the dialog was cancelled
+    if file_path == '':
+        return
+
+    # Save the full path so the song can be loaded later
+    playlist.append(file_path)
+
+    # Show only the file name without extension in the listbox
+    song_name = os.path.splitext(os.path.basename(file_path))[0]
+    song_box.insert(END, song_name)
+
 # Add Song Function
 def add_song():
 
-    song = filedialog.askopenfilename(initialdir = 'C:\\Users\tiago\Downloads\Escola\P&A\PyCharm\Trabalhos no Python\Music Player (trabalho final de disciplina) (81744 - 81809)\Musicas', title = "Selecione a música", filetypes = (("mp3 Files", "*.mp3"), ))
+    song = filedialog.askopenfilename(initialdir = MUSIC_DIR, title = "Selecione a música", filetypes = (("mp3 Files", "*.mp3"), ))
 
-    # strip out the directory info and mp3 extension from the song name
-    global path
-    song = song.replace(path, "")
-    song = song.replace(".mp3", "")
-
-    # Add the song to listbox
-    song_box.insert(END, song)
+    # Add the song to the playlist
+    add_to_playlist(song)
 
 # Add many songs to playlist
 def add_many_songs():
 
-    songs = filedialog.askopenfilenames(initialdir = 'C:\\Users\tiago\Downloads\Escola\P&A\PyCharm\Trabalhos no Python\Music Player (trabalho final de disciplina) (81744 - 81809)\Musicas', title = "Selecione as musicas", filetypes = (("mp3 Files", "*.mp3"), ))
+    songs = filedialog.askopenfilenames(initialdir = MUSIC_DIR, title = "Selecione as musicas", filetypes = (("mp3 Files", "*.mp3"), ))
 
-    # Loop through song list and replace directory info and mp3
+    # Loop thru the song list and add each one
     for song in songs:
-        global path
-        song = song.replace(path, "")
-        song = song.replace(".mp3", "")
-
-        # Add the songs to the listbox
-        song_box.insert(END, song)
+        add_to_playlist(song)
 
 # Delete A Song
 def delete_song():
 
+    # Get the selected song index, do nothing if nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        return
+
     # Calls function stop to stop the music
     stop()
 
-    # Delete Currently Selected Song
-    song_box.delete(ANCHOR)
+    # Delete Currently Selected Song from the listbox and the playlist
+    song_box.delete(selected[0])
+    del playlist[selected[0]]
 
     # Stop Music if it's playing
     pygame.mixer.music.stop()
@@ -141,6 +169,9 @@ def delete_all_songs():
 
     # Delete All Songs
     song_box.delete(0, END)
+
+    # Clear the playlist list
+    playlist.clear()
 
     # Stop Music if it's playing
     pygame.mixer.music.stop()
@@ -162,8 +193,22 @@ def play():
     # Saves the song title
     global active_song
 
-    # Gets the music path
-    global path
+    # Gets the music full path
+    global active_path
+
+    # Do nothing when there is nothing to play
+    if song_box.size() == 0:
+        messagebox.showinfo("Music Player", "A playlist está vazia")
+        return
+
+    # Use the selected song, or the first one when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        index = 0
+        song_box.selection_set(index)
+    else:
+        index = selected[0]
 
     if playing == True:
 
@@ -171,20 +216,20 @@ def play():
         status_bar.config(text=' ')
         my_slider.config(value=0)
 
-        # Get the current song tuple number
-        active = song_box.curselection()
-
         # Stop Song From Playing
         pygame.mixer.music.stop()
 
         # Grab song title from playlist
-        active_song = song_box.get(active)
-        # Add directory structure and mp3 to song title
-        song = f'{path}{active_song}.mp3'
+        active_song = song_box.get(index)
+        # Grab the full path of the selected song
+        active_path = playlist[index]
 
         # Load and play song
-        pygame.mixer.music.load(song)
+        pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops=0)
+
+        # Start a single timer loop for the new song
+        start_play_time()
 
         # Calls the Recent Music function
         rec_music()
@@ -195,16 +240,16 @@ def play():
         my_slider.config(value=0)
 
         # Grab song title from playlist
-        active_song = song_box.get(ACTIVE)
-        # Add directory structure and mp3 to song title
-        song = f'{path}{active_song}.mp3'
+        active_song = song_box.get(index)
+        # Grab the full path of the selected song
+        active_path = playlist[index]
 
         # Load and play song
-        pygame.mixer.music.load(song)
+        pygame.mixer.music.load(active_path)
         pygame.mixer.music.play(loops = 0)
 
-        # Call the play_time function to get song lenght
-        play_time()
+        # Start a single timer loop for the new song
+        start_play_time()
 
         # Set Playing Variable To True
         playing = True
@@ -221,10 +266,16 @@ def stop():
 
     # Stop Song From Playing
     pygame.mixer.music.stop()
-    song_box.selection_clear(ACTIVE)
 
     # Clear The Status Bar
     status_bar.config(text = '')
+
+    # Cancel the pending timer so no old loop keeps running
+    global time_job
+
+    if time_job is not None:
+        status_bar.after_cancel(time_job)
+        time_job = None
 
     # Set Stop Variable To True
     global stopped
@@ -237,14 +288,22 @@ def stop():
 # Play The Next Song in the playlist
 def next_song():
 
+    # Do nothing when the playlist is empty
+    if song_box.size() == 0:
+        return
+
     # Reset Slider and Status Bar
     status_bar.config(text=' ')
     my_slider.config(value=0)
 
-    # Get the current song tuple number
-    next_one = song_box.curselection()
-    # Add one to the current song number
-    next_one = next_one[0] + 1
+    # Get the current song number, start at the first song when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        next_one = 0
+    else:
+        # Add one to the current song number
+        next_one = selected[0] + 1
 
     # Creation of variable max_lenght
     max_lenght = song_box.size() - 1
@@ -256,15 +315,19 @@ def next_song():
 
         return
 
-    # Gets song title from global variable
+    # Grab song title from playlist
     global active_song
     active_song = song_box.get(next_one)
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Grab the full path of the next song
+    global active_path
+    active_path = playlist[next_one]
 
     # Load and play song
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
+
+    # Start a single timer loop for the new song
+    start_play_time()
 
     # Move active bar in playlist listbox
     song_box.selection_clear(0, END)
@@ -280,30 +343,41 @@ def next_song():
 
 # Play Previous Song In Playlist
 def previous_song():
+    # Do nothing when the playlist is empty
+    if song_box.size() == 0:
+        return
 
     # Reset Slider and Status Bar
     status_bar.config(text=' ')
     my_slider.config(value=0)
 
-    # Get the current song tuple number
-    previous_one = song_box.curselection()
-    # Subtract one to the current song number
-    previous_one = previous_one[0] - 1
+    # Get the current song number, use the first song when nothing is selected
+    selected = song_box.curselection()
+
+    if selected == ():
+        previous_one = 0
+    else:
+        # Subtract one to the current song number
+        previous_one = selected[0] - 1
 
     # condition to prevent the function form an error
     if previous_one < 0:
 
-        previous_one = previous_one + 1
+        previous_one = 0
 
-    # Gets song title from global variable
+    # Grab song title from playlist
     global active_song
     active_song = song_box.get(previous_one)
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Grab the full path of the previous song
+    global active_path
+    active_path = playlist[previous_one]
 
     # Load and play song
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0)
+
+    # Start a single timer loop for the new song
+    start_play_time()
 
     # Move active bar in playlist listbox
     song_box.selection_clear(0, END)
@@ -320,6 +394,10 @@ def previous_song():
 # Pause and Unpause The Current Song
 def pause(is_paused):
 
+    # Do nothing when no song is playing
+    if playing == False:
+        return
+
     global paused
     paused = is_paused
 
@@ -333,18 +411,39 @@ def pause(is_paused):
         paused = True
 
 # Create slider function
-def slide(X):
+def slide(event):
 
-    # Gets song title from variable
-    global active_song
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Do nothing when no song was ever loaded
+    if playing == False:
+        return
+
+    # Gets the song full path from the global variable
+    global active_path
+
+    # Do nothing when there is no active song path
+    if active_path == '':
+        return
 
     # Loads the info to the slider
-    pygame.mixer.music.load(song)
+    pygame.mixer.music.load(active_path)
     pygame.mixer.music.play(loops=0, start = int(my_slider.get()))
 
-# Grab Song Lenght and Time Info
+    # Keep the song paused when it was paused before the seek
+    if paused:
+        pygame.mixer.music.pause()
+
+# Cancel any pending timer and start a fresh play_time loop
+def start_play_time():
+
+    global time_job
+
+    if time_job is not None:
+        status_bar.after_cancel(time_job)
+        time_job = None
+
+    play_time()
+
+# Grab Song Lenght Time Info
 def play_time():
 
     # Check for double timing
@@ -354,13 +453,17 @@ def play_time():
     # Grab Current Song Elapsed Time
     current_time = pygame.mixer.music.get_pos() / 1000
 
-    # Gets song title from global variable
-    global active_song
-    # Add directory structure and mp3 to song title
-    song = f'{path}{active_song}.mp3'
+    # Gets the song full path from the global variable
+    global active_path
 
     # Get Song Length with Mutagen
-    song_mut = MP3(song)
+    try:
+        song_mut = MP3(active_path)
+    except Exception:
+        # The file could not be read, warn once and stop
+        messagebox.showerror("Music Player", "Não foi possível ler o ficheiro de música")
+        stop()
+        return
 
     # Get song Length
     global song_length
@@ -378,8 +481,11 @@ def play_time():
         # Output time to status bar
         status_bar.config(text=f'Tempo de música: {converted_song_length} de {converted_song_length}    ')
 
-        # Plays the next song if the actual song was ended
+        # Play the next song if the actual song was ended
         next_song()
+
+        # next_song already started its own timer, so this loop must end here
+        return
 
     elif paused:
 
@@ -412,8 +518,9 @@ def play_time():
         next_time = int(my_slider.get()) + 1
         my_slider.config(value = next_time)
 
-    # update time
-    status_bar.after(1000, play_time)
+    # update time, keep the job id so it can be cancelled later
+    global time_job
+    time_job = status_bar.after(1000, play_time)
 
 # Create Volume Function
 def volume(X):
@@ -553,15 +660,15 @@ master_frame = Frame(root)
 master_frame.pack(pady = 20, padx = 10)
 
 # Create Playlist Box
-song_box = Listbox(master_frame, bg = "black", fg = "green", width = 60, selectbackground = "gray", selectforeground = "black")
+song_box = Listbox(master_frame, bg = "black", fg = "green", width = 60, selectbackground = "gray", selectforeground = "black", exportselection = False)
 song_box.grid(row = 0, column = 0)
 
 # Create Player Control Buttons
-back_btn_img = PhotoImage(file = 'assets/images/previous.png')
-forward_btn_img = PhotoImage(file = 'assets/images/next.png')
-play_btn_img = PhotoImage(file = 'assets/images/play.png')
-pause_btn_img = PhotoImage(file = 'assets/images/pause.png')
-stop_btn_img = PhotoImage(file = 'assets/images/stop.png')
+back_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'previous.png'))
+forward_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'next.png'))
+play_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'play.png'))
+pause_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'pause.png'))
+stop_btn_img = PhotoImage(file = os.path.join(IMAGES_DIR, 'stop.png'))
 
 # Create Player Control Frame
 controls_frame = Frame(master_frame)
@@ -605,8 +712,11 @@ historic_songs_menu.add_separator()
 historic_songs_menu.add_command(label = "Eliminar histórico de musicas", command = delete_rec_songs)
 
 # Create Music Position Slider
-my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, command = slide, length = 360)
+my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, length = 360)
 my_slider.grid(row = 1, column = 0, pady = 20)
+
+# Seek only when the user releases the slider, not when the program updates it
+my_slider.bind('<ButtonRelease-1>', slide)
 
 # Create Volume Label Frame
 volume_frame = LabelFrame(master_frame, text = 'Volume')
