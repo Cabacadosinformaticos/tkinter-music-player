@@ -77,7 +77,7 @@ def add_to_playlist(file_path):
 # Add Song Function
 def add_song():
 
-    song = filedialog.askopenfilename(initialdir = MUSIC_DIR, title = "Selecione a música", filetypes = (("mp3 Files", "*.mp3"), ))
+    song = filedialog.askopenfilename(initialdir = MUSIC_DIR, title = "Select a song", filetypes = (("MP3 files", "*.mp3"), ))
 
     # Add the song to the playlist
     add_to_playlist(song)
@@ -85,9 +85,9 @@ def add_song():
 # Add many songs to playlist
 def add_many_songs():
 
-    songs = filedialog.askopenfilenames(initialdir = MUSIC_DIR, title = "Selecione as musicas", filetypes = (("mp3 Files", "*.mp3"), ))
+    songs = filedialog.askopenfilenames(initialdir = MUSIC_DIR, title = "Select songs", filetypes = (("MP3 files", "*.mp3"), ))
 
-    # Loop thru the song list and add each one
+    # Loop through the song list and add each one
     for song in songs:
         add_to_playlist(song)
 
@@ -147,7 +147,7 @@ def play():
 
     # Do nothing when there is nothing to play
     if song_box.size() == 0:
-        messagebox.showinfo("Music Player", "A playlist está vazia")
+        messagebox.showinfo("Music Player", "The playlist is empty")
         return
 
     # Use the selected song, or the first one when nothing is selected
@@ -254,11 +254,11 @@ def next_song():
         # Add one to the current song number
         next_one = selected[0] + 1
 
-    # Creation of variable max_lenght
-    max_lenght = song_box.size() - 1
+    # Creation of variable max_length
+    max_length = song_box.size() - 1
 
-    # condition to prevent the function form an error
-    if next_one > max_lenght:
+    # condition to prevent the function from an error
+    if next_one > max_length:
 
         stop()
 
@@ -309,7 +309,7 @@ def previous_song():
         # Subtract one to the current song number
         previous_one = selected[0] - 1
 
-    # condition to prevent the function form an error
+    # condition to prevent the function from an error
     if previous_one < 0:
 
         previous_one = 0
@@ -392,7 +392,7 @@ def start_play_time():
 
     play_time()
 
-# Grab Song Lenght Time Info
+# Grab Song Length Time Info
 def play_time():
 
     # Check for double timing
@@ -410,7 +410,7 @@ def play_time():
         song_mut = MP3(active_path)
     except Exception:
         # The file could not be read, warn once and stop
-        messagebox.showerror("Music Player", "Não foi possível ler o ficheiro de música")
+        messagebox.showerror("Music Player", "Could not read the music file")
         stop()
         return
 
@@ -424,11 +424,11 @@ def play_time():
     # Increase current time by 1 second
     current_time += 1
 
-    # Funcion that rules the music time
+    # Function that rules the music time
     if int(my_slider.get()) == int(song_length):
 
         # Output time to status bar
-        status_bar.config(text=f'Tempo de música: {converted_song_length} de {converted_song_length}    ')
+        status_bar.config(text=f'Song time: {converted_song_length} of {converted_song_length}    ')
 
         # Play the next song if the actual song was ended
         next_song()
@@ -461,9 +461,9 @@ def play_time():
         converted_current_time = time.strftime('%M:%S', time.gmtime(int(my_slider.get())))
 
         # Output time to status bar
-        status_bar.config(text=f'Tempo de música: {converted_current_time} de {converted_song_length}    ')
+        status_bar.config(text=f'Song time: {converted_current_time} of {converted_song_length}    ')
 
-        # Move this thing along by one second
+        # Move the slider along by one second
         next_time = int(my_slider.get()) + 1
         my_slider.config(value = next_time)
 
@@ -499,7 +499,7 @@ def rec_music():
 
     # Opens the file in append mode and writes the message in the file
     with open(HISTORY_FILE, 'a', encoding='utf-8') as file:
-        file.write("A musica %s foi ouvida ás %s, no dia %s\n" %(msg1, msg2, msg3))
+        file.write("The song %s was played at %s on %s\n" %(msg1, msg2, msg3))
 
 # Gets the song info from txt file and displays it in the screen
 def view_rec_songs():
@@ -508,7 +508,7 @@ def view_rec_songs():
     New_window = Toplevel(root)
 
     # sets the title of the Toplevel widget
-    New_window.title("Histórico de musicas")
+    New_window.title("Play history")
 
     # sets the geometry of toplevel
     New_window.geometry("1050x450")
@@ -519,7 +519,7 @@ def view_rec_songs():
     New_window.maxsize(1050, 450)
 
     # A Label widget to show in toplevel
-    Label(New_window, text="Histórico de musicas", padx=5, pady=5).pack()
+    Label(New_window, text="Play history", padx=5, pady=5).pack()
 
     # Creation of the text area
     txtarea = Text(New_window, width=125, height=25)
@@ -535,13 +535,13 @@ def view_rec_songs():
     # Show the history when the file exists, a message when nothing was played
     if os.path.exists(HISTORY_FILE):
         # Opens the file with reading permission and reads the content
-        with open(HISTORY_FILE, 'r', encoding='utf-8') as ler:
-            msg = ler.read()
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as reader:
+            msg = reader.read()
 
         # Writes the content in the text area
         txtarea.insert(END, msg)
     else:
-        txtarea.insert(END, "Ainda não há músicas no histórico")
+        txtarea.insert(END, "There are no songs in the history yet")
 
     # Make the text area read only
     txtarea.config(state=DISABLED)
@@ -591,23 +591,23 @@ root.config(menu = my_menu)
 
 # Create Add Song Menu
 add_song_menu = Menu(my_menu, tearoff=0)
-my_menu.add_cascade(label = "Adicionar musicas", menu = add_song_menu)
-add_song_menu.add_command(label = "Adicionar uma música", command = add_song)
+my_menu.add_cascade(label = "Add songs", menu = add_song_menu)
+add_song_menu.add_command(label = "Add one song", command = add_song)
 # Add Many Songs to playlist
-add_song_menu.add_command(label = "Adicionar várias musicas", command = add_many_songs)
+add_song_menu.add_command(label = "Add many songs", command = add_many_songs)
 
 # Create Delete Song Menu
 remove_song_menu = Menu(my_menu, tearoff=0)
-my_menu.add_cascade(label = "Eliminar musicas", menu = remove_song_menu)
-remove_song_menu.add_command(label = "Eliminar uma música", command = delete_song)
-remove_song_menu.add_command(label = "Eliminar todas as musicas", command = delete_all_songs)
+my_menu.add_cascade(label = "Remove songs", menu = remove_song_menu)
+remove_song_menu.add_command(label = "Remove selected song", command = delete_song)
+remove_song_menu.add_command(label = "Remove all songs", command = delete_all_songs)
 
 # Create Historic Song Menu
 historic_songs_menu = Menu(my_menu, tearoff=0)
-my_menu.add_cascade(label = "Histórico de musicas", menu = historic_songs_menu)
-historic_songs_menu.add_command(label = "Ver histórico de musicas", command = view_rec_songs)
+my_menu.add_cascade(label = "Play history", menu = historic_songs_menu)
+historic_songs_menu.add_command(label = "View play history", command = view_rec_songs)
 historic_songs_menu.add_separator()
-historic_songs_menu.add_command(label = "Eliminar histórico de musicas", command = delete_rec_songs)
+historic_songs_menu.add_command(label = "Clear play history", command = delete_rec_songs)
 
 # Create Music Position Slider
 my_slider = ttk.Scale(master_frame, from_ = 0, to = 100, orient = HORIZONTAL, value = 0, length = 360)
