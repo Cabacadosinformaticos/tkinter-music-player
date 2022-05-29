@@ -1,3 +1,13 @@
+# Music Player - local version
+# Programação Avançada course project, AESM, 2021/2022
+# By Tiago Cabaça 81744 and Francisco Diniz 81809
+#
+# A small music player built with tkinter for the window and pygame for playback.
+# The play history is written to a text file (recent_songs.txt) in the repository
+# root, so this version works without any database.
+#
+# Run it with: python src/local_player.py
+
 from tkinter import *
 import pygame
 from tkinter import filedialog
@@ -31,7 +41,9 @@ root.maxsize(455, 345)
 # Initialize Pygame Mixer
 pygame.mixer.init()
 
-# Creation of Global variables
+# Global variables shared by the functions below: the playback state (playing,
+# paused, stopped), the current song (active_song, active_path), the playlist of
+# full paths and the pending timer id (time_job)
 # Create Global Playing Variable
 global playing
 playing = False
@@ -74,7 +86,7 @@ def add_to_playlist(file_path):
     song_name = os.path.splitext(os.path.basename(file_path))[0]
     song_box.insert(END, song_name)
 
-# Add Song Function
+# Ask the user for one song and add it to the playlist
 def add_song():
 
     song = filedialog.askopenfilename(initialdir = MUSIC_DIR, title = "Select a song", filetypes = (("MP3 files", "*.mp3"), ))
@@ -359,7 +371,7 @@ def pause(is_paused):
         pygame.mixer.music.pause()
         paused = True
 
-# Create slider function
+# Seek the active song to the slider position, called when the user releases it
 def slide(event):
 
     # Do nothing when no song was ever loaded
@@ -392,7 +404,7 @@ def start_play_time():
 
     play_time()
 
-# Grab Song Length Time Info
+# Refresh the slider and the status bar every second while a song plays
 def play_time():
 
     # Check for double timing
@@ -438,7 +450,7 @@ def play_time():
 
     elif paused:
 
-        # If music pause, play-time pause ans slider pause too
+        # If the music is paused, the play time and the slider pause too
         pass
 
     elif int(my_slider.get()) == int(current_time):
@@ -471,7 +483,7 @@ def play_time():
     global time_job
     time_job = status_bar.after(1000, play_time)
 
-# Create Volume Function
+# Set the mixer volume from the volume slider position
 def volume(X):
 
     # Sets the volume according to volume_slider position
