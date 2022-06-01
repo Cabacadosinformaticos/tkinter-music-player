@@ -34,3 +34,7 @@ AGENTS.md
 .claude/
 .codex/
 .mcp.json
+
+# Player data (settings, history database and text history) and test caches
+data/
+.pytest_cache/
