@@ -1,5 +1,5 @@
 # Tests for the playlist module: Track, format_duration and the Playlist class
-# (add and remove, current tracking, advance, previous and totals).
+# (add and remove, current tracking, advance, previous, totals, shuffle and filter).
 
 from __future__ import annotations
 
@@ -151,13 +151,14 @@ def test_remove_current_sets_current_to_minus_one():
     assert len(playlist) == 2
 
 
-def test_remove_last_with_negative_index_when_it_is_current():
+def test_remove_with_negative_index_raises():
     playlist = Playlist()
     playlist.add_many(make_tracks("a", "b", "c"))
     playlist.select(2)
-    playlist.remove(-1)
-    assert len(playlist) == 2
-    assert playlist.current == -1
+    with pytest.raises(IndexError):
+        playlist.remove(-1)
+    assert len(playlist) == 3
+    assert playlist.current == 2
 
 
 def test_remove_without_current_keeps_minus_one():
@@ -178,11 +179,12 @@ def test_select_sets_current_and_returns_the_track():
     assert playlist.current_track().title == "c"
 
 
-def test_select_negative_index_counts_from_the_end():
+def test_select_negative_index_is_invalid():
     playlist = Playlist()
     playlist.add_many(make_tracks("a", "b", "c"))
-    assert playlist.select(-1).title == "c"
-    assert playlist.current == 2
+    assert playlist.select(0).title == "a"
+    assert playlist.select(-1) is None
+    assert playlist.current == 0
 
 
 def test_select_invalid_index_changes_nothing():
@@ -370,3 +372,203 @@ def test_total_duration_sums_every_track():
         ]
     )
     assert playlist.total_duration() == pytest.approx(11.0)
+
+
+# --- shuffle ---
+
+def shuffled_playlist(*names: str) -> Playlist:
+    """Small helper: a shuffled playlist with a fixed random seed, ready to play."""
+    playlist = Playlist(random.Random(1))
+    playlist.add_many(make_tracks(*names))
+    playlist.shuffle = True
+    return playlist
+
+
+def test_shuffle_visits_every_song_once_per_cycle():
+    playlist = shuffled_playlist("a", "b", "c", "d", "e")
+    visited = [playlist.advance()]
+    while True:
+        following = playlist.advance()
+        if following is None:
+            break
+        visited.append(following)
+        assert len(visited) <= len(playlist)
+    assert sorted(visited) == [0, 1, 2, 3, 4]
+
+
+def test_shuffle_previous_walks_back_through_played_songs():
+    playlist = shuffled_playlist("a", "b", "c", "d")
+    first = playlist.advance()
+    second = playlist.advance()
+    third = playlist.advance()
+    assert playlist.previous() == second
+    assert playlist.previous() == first
+    # At the first song of the order it restarts it, as in sequential mode.
+    assert playlist.previous() == first
+    assert playlist.current == first
+    assert third not in (first, second)
+
+
+def test_shuffle_previous_at_the_first_with_repeat_all_wraps_to_the_last_of_the_order():
+    # A first playlist with the same seed reveals the order the second one will use.
+    probe = shuffled_playlist("a", "b", "c", "d")
+    order = []
+    while True:
+        following = probe.advance()
+        if following is None:
+            break
+        order.append(following)
+    playlist = shuffled_playlist("a", "b", "c", "d")
+    playlist.repeat = "all"
+    assert playlist.advance() == order[0]
+    assert playlist.previous() == order[-1]
+    assert playlist.current == order[-1]
+
+
+def test_shuffle_repeat_all_new_cycle_does_not_repeat_the_last_song():
+    playlist = shuffled_playlist("a", "b", "c", "d")
+    playlist.repeat = "all"
+    last = playlist.advance()
+    for _ in range(len(playlist) - 1):
+        last = playlist.advance()
+    assert playlist.current == last
+    first_of_new_cycle = playlist.advance()
+    assert first_of_new_cycle != last
+    assert 0 <= first_of_new_cycle < len(playlist)
+
+
+def test_switching_shuffle_off_makes_advance_sequential():
+    playlist = shuffled_playlist("a", "b", "c", "d")
+    playlist.advance()
+    playlist.advance()
+    playlist.shuffle = False
+    assert playlist.select(0).title == "a"
+    assert playlist.advance() == 1
+    assert playlist.advance() == 2
+
+
+def test_switching_shuffle_on_builds_a_new_order_from_the_current_song():
+    playlist = Playlist(random.Random(1))
+    playlist.add_many(make_tracks("a", "b", "c", "d"))
+    playlist.select(2)
+    playlist.shuffle = True
+    visited = [playlist.current]
+    while True:
+        following = playlist.advance()
+        if following is None:
+            break
+        visited.append(following)
+    assert visited[0] == 2
+    assert sorted(visited) == [0, 1, 2, 3]
+
+
+def test_shuffle_add_and_remove_keep_the_order_valid():
+    playlist = shuffled_playlist("a", "b", "c", "d", "e")
+    playlist.advance()
+    playlist.advance()
+    current = playlist.current
+    other = (current + 1) % len(playlist)
+    playlist.add(Track(path="f.mp3", title="f"))
+    playlist.remove(other)
+    assert 0 <= playlist.current < len(playlist)
+    visited = [playlist.current]
+    for _ in range(len(playlist) - 1):
+        following = playlist.advance()
+        assert following is not None
+        assert 0 <= following < len(playlist)
+        assert following not in visited
+        visited.append(following)
+    assert sorted(visited) == list(range(len(playlist)))
+
+
+def test_shuffle_select_starts_a_new_order_from_the_selected_song():
+    playlist = shuffled_playlist("a", "b", "c", "d")
+    playlist.advance()
+    playlist.select(1)
+    visited = [playlist.current]
+    while True:
+        following = playlist.advance()
+        if following is None:
+            break
+        visited.append(following)
+    assert visited[0] == 1
+    assert sorted(visited) == [0, 1, 2, 3]
+
+
+def test_shuffle_with_one_song_and_repeat_all_repeats_it():
+    playlist = shuffled_playlist("a")
+    playlist.repeat = "all"
+    assert playlist.advance() == 0
+    assert playlist.advance() == 0
+    assert playlist.previous() == 0
+
+
+def test_shuffle_with_one_song_and_repeat_off_ends():
+    playlist = shuffled_playlist("a")
+    assert playlist.advance() == 0
+    assert playlist.advance() is None
+    assert playlist.previous() == 0
+
+
+def test_shuffle_advance_on_empty_playlist_returns_none():
+    playlist = Playlist(random.Random(1))
+    playlist.shuffle = True
+    assert playlist.advance() is None
+    assert playlist.previous() is None
+    assert playlist.current == -1
+
+
+# --- filter ---
+
+def test_filter_with_empty_query_returns_all_indices():
+    playlist = Playlist()
+    playlist.add_many(make_tracks("a", "b", "c"))
+    assert playlist.filter("") == [0, 1, 2]
+    assert playlist.filter("   ") == [0, 1, 2]
+
+
+def test_filter_without_match_returns_empty():
+    playlist = Playlist()
+    playlist.add_many(make_tracks("a", "b"))
+    assert playlist.filter("zzz") == []
+
+
+def test_filter_is_case_insensitive_and_needs_every_word():
+    playlist = Playlist()
+    playlist.add_many(
+        [
+            Track(path="1.mp3", title="Hotel California", artist="Eagles", album="Hotel California"),
+            Track(path="2.mp3", title="Take It Easy", artist="Eagles", album="Eagles"),
+            Track(path="3.mp3", title="Bohemian Rhapsody", artist="Queen", album="A Night at the Opera"),
+        ]
+    )
+    assert playlist.filter("hotel") == [0]
+    assert playlist.filter("HOTEL CALIFORNIA") == [0]
+    assert playlist.filter("queen opera") == [2]
+    assert playlist.filter("queen hotel") == []
+
+
+def test_filter_matches_artist_and_album():
+    playlist = Playlist()
+    playlist.add_many(
+        [
+            Track(path="1.mp3", title="Song", artist="Eagles", album="Hotel California"),
+            Track(path="2.mp3", title="Song", artist="Queen", album="Opera"),
+        ]
+    )
+    assert playlist.filter("eagles") == [0]
+    assert playlist.filter("opera") == [1]
+
+
+# --- negative indices ---
+
+def test_negative_indices_are_invalid_in_select_and_remove():
+    playlist = Playlist()
+    playlist.add_many(make_tracks("a", "b", "c"))
+    playlist.select(2)
+    assert playlist.select(-1) is None
+    assert playlist.current == 2
+    with pytest.raises(IndexError):
+        playlist.remove(-1)
+    assert len(playlist) == 3
+    assert playlist.current == 2
