@@ -1,3 +1,4 @@
 pygame>=2.0
 mutagen>=1.45
 pyodbc>=4.0
+sv-ttk>=2.5
