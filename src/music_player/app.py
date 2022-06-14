@@ -76,6 +76,8 @@ class PlayerApp:
         self._title_shown = ""
         self._artist_text = ""
         self._artist_shown = ""
+        self._album_text = ""
+        self._album_shown = ""
 
         self._build_window()
         self._build_menu()
@@ -83,6 +85,7 @@ class PlayerApp:
         self._build_right_panel()
         self._apply_palette()
         self._refresh_playlist()
+        self._update_song_labels(None)
         self._set_initial_volume()
         self._tick()
 
@@ -145,22 +148,27 @@ class PlayerApp:
 
         self._title_font = _font_object(self.root, 20, "bold")
         self._artist_font = _font_object(self.root, 12)
+        self._album_font = _font_object(self.root, 10)
 
         # Cover art at the top, resized with the column.
         self.cover = CoverArt(self.left, size=self._cover_size)
         self.cover.grid(row=0, column=0, pady=(0, PAD))
 
-        # Title and artist, one line each with an ellipsis when they are too long.
+        # Title, artist and album, one line each with an ellipsis when they are too long.
         self.title_label = ttk.Label(self.left, style="Title.TLabel", anchor="center")
         self.title_label.grid(row=1, column=0, sticky="ew")
         self.title_label.bind("<Configure>", self._on_title_resize)
         self.artist_label = ttk.Label(self.left, style="Artist.TLabel", anchor="center")
-        self.artist_label.grid(row=2, column=0, sticky="ew", pady=(GAP // 2, PAD))
+        self.artist_label.grid(row=2, column=0, sticky="ew", pady=(GAP // 2, 0))
         self.artist_label.bind("<Configure>", self._on_artist_resize)
+        # An empty label keeps the height of one line, so the layout never jumps.
+        self.album_label = ttk.Label(self.left, style="Muted.TLabel", anchor="center")
+        self.album_label.grid(row=3, column=0, sticky="ew", pady=(0, PAD))
+        self.album_label.bind("<Configure>", self._on_album_resize)
 
         # Seek bar: elapsed time, slider, total time.
         seek_row = ttk.Frame(self.left)
-        seek_row.grid(row=3, column=0, sticky="ew")
+        seek_row.grid(row=4, column=0, sticky="ew")
         seek_row.columnconfigure(1, weight=1)
         self.elapsed_label = ttk.Label(seek_row, style="Time.TLabel", width=6, anchor="e")
         self.elapsed_label.grid(row=0, column=0, padx=(0, GAP))
@@ -171,7 +179,7 @@ class PlayerApp:
 
         # Transport buttons: previous, play or pause, next and stop.
         controls = ttk.Frame(self.left)
-        controls.grid(row=4, column=0, pady=PAD)
+        controls.grid(row=5, column=0, pady=PAD)
         self.previous_button = IconButton(controls, "previous", command=self._on_previous)
         self.previous_button.pack(side="left", padx=(0, GAP))
         self.play_button = IconButton(
@@ -185,7 +193,7 @@ class PlayerApp:
 
         # Volume: icon (no command yet) and a short slider.
         volume_row = ttk.Frame(self.left)
-        volume_row.grid(row=5, column=0)
+        volume_row.grid(row=6, column=0)
         self.volume_button = IconButton(volume_row, "volume", size=32)
         self.volume_button.pack(side="left", padx=(0, GAP))
         self.volume_slider = Slider(volume_row, on_change=self._on_volume)
@@ -193,7 +201,7 @@ class PlayerApp:
         self.volume_slider.pack(side="left")
 
         # Empty space at the bottom keeps the content at the top of the column.
-        self.left.rowconfigure(6, weight=1)
+        self.left.rowconfigure(7, weight=1)
 
     def _build_right_panel(self) -> None:
         """Playlist header with its buttons, the song table and the footer."""
@@ -550,13 +558,29 @@ class PlayerApp:
     # ------------------------------------------------------------------
 
     def _update_song_labels(self, track: Track | None) -> None:
-        """Show the title and artist of one track, or empty text when there is none."""
-        self._title_text = track.title if track is not None else ""
-        self._artist_text = track.artist if track is not None else ""
+        """Show the title, artist and album of one track, or the empty state when there is none."""
         if track is None:
+            self._title_text = "Nothing playing"
+            self._artist_text = "Add songs to start"
+            self._album_text = ""
             self.cover.set_cover(None)
+        else:
+            self._title_text = track.title
+            self._artist_text = track.artist
+            self._album_text = track.album
+        self._update_window_title(track)
         self._show_title(self.title_label.winfo_width())
         self._show_artist(self.artist_label.winfo_width())
+        self._show_album(self.album_label.winfo_width())
+
+    def _update_window_title(self, track: Track | None) -> None:
+        """Window title with the song and its artist, or the plain name when nothing is loaded."""
+        if track is None:
+            self.root.title("Music Player")
+        elif track.artist:
+            self.root.title(f"{track.title} - {track.artist} - Music Player")
+        else:
+            self.root.title(f"{track.title} - Music Player")
 
     def _show_title(self, width: int) -> None:
         """Title on a single centred line, cut with an ellipsis when the label is narrow."""
@@ -572,6 +596,13 @@ class PlayerApp:
             self._artist_shown = shown
             self.artist_label.configure(text=shown)
 
+    def _show_album(self, width: int) -> None:
+        """Album on a single centred line, cut with an ellipsis when the label is narrow."""
+        shown = _shorten(self._album_text, self._album_font, width - GAP)
+        if shown != self._album_shown:
+            self._album_shown = shown
+            self.album_label.configure(text=shown)
+
     def _on_title_resize(self, event) -> None:
         """The title label changed width: fit the text again."""
         self._show_title(event.width)
@@ -579,6 +610,10 @@ class PlayerApp:
     def _on_artist_resize(self, event) -> None:
         """The artist label changed width: fit the text again."""
         self._show_artist(event.width)
+
+    def _on_album_resize(self, event) -> None:
+        """The album label changed width: fit the text again."""
+        self._show_album(event.width)
 
     def _on_left_resize(self, event) -> None:
         """Resize the cover with the left column, between 200 and 420 pixels."""
