@@ -60,6 +60,9 @@ class PlayerApp:
         self.root = root
         self.settings = settings
         self.playlist = Playlist()
+        # Start with the shuffle and repeat choices saved the last time.
+        self.playlist.shuffle = bool(settings["shuffle"])
+        self.playlist.repeat = str(settings["repeat"])
         self.player = player
         if self.player is None:
             try:
@@ -177,19 +180,24 @@ class PlayerApp:
         self.total_label = ttk.Label(seek_row, style="Time.TLabel", width=6, anchor="w")
         self.total_label.grid(row=0, column=2, padx=(GAP, 0))
 
-        # Transport buttons: previous, play or pause, next and stop.
+        # Transport buttons: shuffle, previous, play or pause, next, repeat and,
+        # after a larger gap, stop. The five main ones share the same spacing.
         controls = ttk.Frame(self.left)
         controls.grid(row=5, column=0, pady=PAD)
+        self.shuffle_button = IconButton(controls, "shuffle", command=self._on_shuffle)
+        self.shuffle_button.pack(side="left", padx=GAP // 2)
         self.previous_button = IconButton(controls, "previous", command=self._on_previous)
-        self.previous_button.pack(side="left", padx=(0, GAP))
+        self.previous_button.pack(side="left", padx=GAP // 2)
         self.play_button = IconButton(
             controls, "play", command=self._on_play_pause, size=56, circle=True
         )
-        self.play_button.pack(side="left", padx=GAP)
+        self.play_button.pack(side="left", padx=GAP // 2)
         self.next_button = IconButton(controls, "next", command=self._on_next)
-        self.next_button.pack(side="left", padx=GAP)
+        self.next_button.pack(side="left", padx=GAP // 2)
+        self.repeat_button = IconButton(controls, "repeat", command=self._on_repeat)
+        self.repeat_button.pack(side="left", padx=GAP // 2)
         self.stop_button = IconButton(controls, "stop", command=self._on_stop)
-        self.stop_button.pack(side="left", padx=(GAP, 0))
+        self.stop_button.pack(side="left", padx=(PAD, 0))
 
         # Volume: icon (no command yet) and a short slider.
         volume_row = ttk.Frame(self.left)
@@ -397,7 +405,12 @@ class PlayerApp:
         """Make one song current, start it and update the whole interface."""
         if self.player is None:
             return
-        track = self.playlist.select(index)
+        if self.playlist.current == index:
+            # advance() already moved the current position here: selecting the
+            # same song again would drop the shuffled order, so it is kept.
+            track = self.playlist.current_track()
+        else:
+            track = self.playlist.select(index)
         if track is None:
             return
         try:
@@ -479,8 +492,37 @@ class PlayerApp:
         self._stop_playback()
 
     def _on_track_end(self) -> None:
-        """A song ended by itself: stop and reset the display."""
-        self._stop_playback()
+        """A song ended by itself: play the next one, or stop at the end of the playlist."""
+        index = self.playlist.advance(auto=True)
+        if index is None:
+            self._stop_playback()
+            return
+        # A file that cannot be played stops the player inside _play_index, so
+        # an unreadable song does not start the next one over and over.
+        self._play_index(index)
+
+    def _on_shuffle(self) -> None:
+        """Switch shuffle on or off and remember the choice."""
+        self.playlist.shuffle = not self.playlist.shuffle
+        self.settings["shuffle"] = self.playlist.shuffle
+        self.settings.save()
+        self._update_mode_buttons()
+
+    def _on_repeat(self) -> None:
+        """Cycle the repeat mode off, all, one and remember the choice."""
+        modes = ("off", "all", "one")
+        position = modes.index(self.playlist.repeat)
+        self.playlist.repeat = modes[(position + 1) % len(modes)]
+        self.settings["repeat"] = self.playlist.repeat
+        self.settings.save()
+        self._update_mode_buttons()
+
+    def _update_mode_buttons(self) -> None:
+        """Show the shuffle and repeat state on their buttons."""
+        self.shuffle_button.set_active(self.playlist.shuffle)
+        repeat = self.playlist.repeat
+        self.repeat_button.set_kind("repeat_one" if repeat == "one" else "repeat")
+        self.repeat_button.set_active(repeat != "off")
 
     def _on_row_double_click(self, event) -> None:
         """Play the row under the mouse pointer."""
@@ -648,8 +690,10 @@ class PlayerApp:
             self.seek_slider,
             self.volume_slider,
             self.play_button,
+            self.shuffle_button,
             self.previous_button,
             self.next_button,
+            self.repeat_button,
             self.stop_button,
             self.volume_button,
             self.add_button,
@@ -657,6 +701,9 @@ class PlayerApp:
             self.remove_button,
         ):
             widget.apply_palette()
+        # apply_palette() keeps the toggled flag, this redraws the active colour
+        # and the repeat icon with the new palette.
+        self._update_mode_buttons()
         self.tree.tag_configure("playing", foreground=palette["accent"])
 
     def _on_close(self) -> None:
