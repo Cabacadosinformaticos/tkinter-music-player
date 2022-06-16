@@ -28,6 +28,9 @@ AUDIO_FILETYPES = (
 PAD = 16
 GAP = 8
 
+# Grey text shown in the search box while it is empty and not focused.
+SEARCH_PLACEHOLDER = "Search title, artist or album"
+
 
 def _clamp(value: float, low: float, high: float) -> float:
     """Keep a number inside the low..high range."""
@@ -75,6 +78,10 @@ class PlayerApp:
         self._timer: str | None = None
         self._closing = False
         self._cover_size = 320
+        # Search box: _placeholder_on is True while the grey hint is shown and
+        # _search_programmatic blocks the change callback during code writes.
+        self._placeholder_on = True
+        self._search_programmatic = False
         self._title_text = ""
         self._title_shown = ""
         self._artist_text = ""
@@ -212,11 +219,11 @@ class PlayerApp:
         self.left.rowconfigure(7, weight=1)
 
     def _build_right_panel(self) -> None:
-        """Playlist header with its buttons, the song table and the footer."""
+        """Playlist header with its buttons, the search box, the song table and the footer."""
         self.right = ttk.Frame(self.container)
         self.right.grid(row=0, column=1, sticky="nsew")
         self.right.columnconfigure(0, weight=1)
-        self.right.rowconfigure(1, weight=1)
+        self.right.rowconfigure(2, weight=1)
 
         # Header: section name on the left, add and remove buttons on the right.
         header = ttk.Frame(self.right)
@@ -232,9 +239,27 @@ class PlayerApp:
         self.remove_button = IconButton(buttons, "close", command=self._remove_selected, size=32)
         self.remove_button.pack(side="left")
 
+        # Search box: magnifier, the entry with its placeholder and the clear
+        # button, which only appears once something is typed.
+        search = ttk.Frame(self.right)
+        search.grid(row=1, column=0, sticky="ew", pady=(0, GAP))
+        search.columnconfigure(1, weight=1)
+        self.search_icon = IconButton(search, "search", size=24)
+        self.search_icon.grid(row=0, column=0, padx=(0, GAP))
+        self.search_var = tk.StringVar(value=SEARCH_PLACEHOLDER)
+        self.search_entry = ttk.Entry(search, textvariable=self.search_var, style="Search.TEntry")
+        self.search_entry.grid(row=0, column=1, sticky="ew")
+        self.clear_search_button = IconButton(search, "close", command=self._clear_search, size=24)
+        self.clear_search_button.grid(row=0, column=2, padx=(GAP, 0))
+        self.clear_search_button.grid_remove()
+        self.search_var.trace_add("write", self._on_search_changed)
+        self.search_entry.bind("<FocusIn>", self._on_search_focus_in)
+        self.search_entry.bind("<FocusOut>", self._on_search_focus_out)
+        self.search_entry.bind("<Escape>", self._on_search_escape)
+
         # Song table with its scrollbar.
         table = ttk.Frame(self.right)
-        table.grid(row=1, column=0, sticky="nsew")
+        table.grid(row=2, column=0, sticky="nsew")
         table.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
         self.tree = ttk.Treeview(
@@ -261,16 +286,17 @@ class PlayerApp:
 
         # Footer with the number of songs and their total time.
         self.footer = ttk.Label(self.right, style="Muted.TLabel")
-        self.footer.grid(row=2, column=0, sticky="w", pady=(GAP, 0))
+        self.footer.grid(row=3, column=0, sticky="w", pady=(GAP, 0))
 
     # ------------------------------------------------------------------
     # Playlist actions
     # ------------------------------------------------------------------
 
     def _refresh_playlist(self) -> None:
-        """Rebuild the table from playlist.tracks, so rows and indices stay in the same order."""
+        """Rebuild the rows that match the search; the iid is the real playlist index."""
         self.tree.delete(*self.tree.get_children())
-        for index, track in enumerate(self.playlist.tracks):
+        for index in self.playlist.filter(self._search_query()):
+            track = self.playlist.tracks[index]
             self.tree.insert(
                 "",
                 "end",
@@ -281,10 +307,17 @@ class PlayerApp:
         self._highlight_playing()
 
     def _update_footer(self) -> None:
-        """Number of songs and their total time, or a hint when the playlist is empty."""
+        """Footer text: the filtered count while searching, otherwise songs and total time."""
         count = len(self.playlist)
         if count == 0:
             self.footer.configure(text="No songs yet - use the + button or File > Add songs")
+            return
+        if self._search_query().strip():
+            shown = len(self.tree.get_children())
+            if shown == 0:
+                self.footer.configure(text="No songs match")
+                return
+            self.footer.configure(text=f"{shown} of {count} songs")
             return
         word = "song" if count == 1 else "songs"
         total = format_duration(self.playlist.total_duration())
@@ -396,6 +429,73 @@ class PlayerApp:
         self.playlist.clear()
         self._refresh_playlist()
         self._update_song_labels(None)
+
+    # ------------------------------------------------------------------
+    # Search box
+    # ------------------------------------------------------------------
+
+    def _search_query(self) -> str:
+        """Text typed in the search box; the grey placeholder is never used as a query."""
+        if self._placeholder_on:
+            return ""
+        return self.search_var.get()
+
+    def _set_search_text(self, text: str, placeholder: bool) -> None:
+        """Write in the search box from the code without treating it as a user edit."""
+        self._search_programmatic = True
+        self._placeholder_on = placeholder
+        self.search_var.set(text)
+        self._search_programmatic = False
+        self._style_search_entry()
+
+    def _style_search_entry(self) -> None:
+        """Muted text while the placeholder is shown, normal text for a real query."""
+        palette = theme.current_palette()
+        color = palette["text_muted"] if self._placeholder_on else palette["text"]
+        try:
+            ttk.Style(master=self.root).configure("Search.TEntry", foreground=color)
+        except tk.TclError:
+            # A ttk theme that refuses the option keeps its own text colour.
+            pass
+
+    def _on_search_changed(self, *_args) -> None:
+        """The user typed: show or hide the clear button and filter the table again."""
+        if self._search_programmatic:
+            return
+        if self.search_var.get():
+            self.clear_search_button.grid()
+        else:
+            self.clear_search_button.grid_remove()
+        self._refresh_playlist()
+
+    def _on_search_focus_in(self, _event) -> None:
+        """The search box got the focus: drop the placeholder."""
+        if self._placeholder_on:
+            self._set_search_text("", placeholder=False)
+
+    def _on_search_focus_out(self, _event) -> None:
+        """The search box lost the focus: show the placeholder again when it is empty."""
+        if not self.search_var.get():
+            self._set_search_text(SEARCH_PLACEHOLDER, placeholder=True)
+
+    def _on_search_escape(self, _event) -> str:
+        """Escape clears the search box and leaves the focus in it."""
+        self._clear_search(focus_table=False)
+        return "break"
+
+    def _clear_search(self, focus_table: bool = True) -> None:
+        """Empty the search box; the clear button also sends the focus back to the table."""
+        self._set_search_text("", placeholder=False)
+        self.clear_search_button.grid_remove()
+        self._refresh_playlist()
+        if focus_table:
+            self.tree.focus_set()
+            self._show_search_placeholder()
+
+    def _show_search_placeholder(self) -> None:
+        """Show the placeholder when the search box is empty and not focused."""
+        if not self.search_var.get():
+            self._set_search_text(SEARCH_PLACEHOLDER, placeholder=True)
 
     # ------------------------------------------------------------------
     # Playback actions
@@ -699,11 +799,15 @@ class PlayerApp:
             self.add_button,
             self.folder_button,
             self.remove_button,
+            self.search_icon,
+            self.clear_search_button,
         ):
             widget.apply_palette()
         # apply_palette() keeps the toggled flag, this redraws the active colour
         # and the repeat icon with the new palette.
         self._update_mode_buttons()
+        # The search text follows the theme too, muted while the placeholder shows.
+        self._style_search_entry()
         self.tree.tag_configure("playing", foreground=palette["accent"])
 
     def _on_close(self) -> None:
