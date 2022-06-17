@@ -31,6 +31,34 @@ GAP = 8
 # Grey text shown in the search box while it is empty and not focused.
 SEARCH_PLACEHOLDER = "Search title, artist or album"
 
+# Volume change of one arrow key press, as a fraction of the slider.
+VOLUME_STEP = 0.05
+
+# Below this volume the icon shows only one sound wave.
+VOLUME_LOW_LIMIT = 0.4
+
+# Widget classes that receive typed text: shortcuts stay out of their way.
+TEXT_CLASSES = ("Entry", "TEntry", "Text")
+
+# Pairs of key and action shown in the Keyboard shortcuts window.
+SHORTCUTS = (
+    ("Space", "Play or pause"),
+    ("Right arrow", "Next song"),
+    ("Left arrow", "Previous song"),
+    ("Up arrow", "Volume up 5%"),
+    ("Down arrow", "Volume down 5%"),
+    ("M", "Mute or unmute"),
+    ("S", "Shuffle on or off"),
+    ("R", "Repeat mode"),
+    ("Ctrl+O", "Add songs"),
+    ("Ctrl+Shift+O", "Add folder"),
+    ("Ctrl+F", "Focus the search box"),
+    ("Delete", "Remove the selected song"),
+    ("Ctrl+Left / Ctrl+Right", "Previous or next song, also in the table"),
+    ("Ctrl+Up / Ctrl+Down", "Volume, also in the table"),
+    ("Escape", "Close this window"),
+)
+
 
 def _clamp(value: float, low: float, high: float) -> float:
     """Keep a number inside the low..high range."""
@@ -78,6 +106,9 @@ class PlayerApp:
         self._timer: str | None = None
         self._closing = False
         self._cover_size = 320
+        # Mute state and the small Keyboard shortcuts window, built on demand.
+        self._muted = bool(settings["muted"])
+        self._shortcuts_window: tk.Toplevel | None = None
         # Search box: _placeholder_on is True while the grey hint is shown and
         # _search_programmatic blocks the change callback during code writes.
         self._placeholder_on = True
@@ -93,6 +124,7 @@ class PlayerApp:
         self._build_menu()
         self._build_left_panel()
         self._build_right_panel()
+        self._bind_shortcuts()
         self._apply_palette()
         self._refresh_playlist()
         self._update_song_labels(None)
@@ -127,18 +159,24 @@ class PlayerApp:
         self.container.columnconfigure(1, weight=2)
 
     def _build_menu(self) -> None:
-        """File, Playlist and View menus, kept in the native menu bar colours."""
+        """File, Playlist, View and Help menus, kept in the native menu bar colours."""
         self.menu = tk.Menu(self.root)
 
         file_menu = tk.Menu(self.menu, tearoff=False)
-        file_menu.add_command(label="Add songs...", command=self._add_songs)
-        file_menu.add_command(label="Add folder...", command=self._add_folder)
+        file_menu.add_command(
+            label="Add songs...", command=self._add_songs, accelerator="Ctrl+O"
+        )
+        file_menu.add_command(
+            label="Add folder...", command=self._add_folder, accelerator="Ctrl+Shift+O"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Quit", command=self._on_close)
         self.menu.add_cascade(label="File", menu=file_menu)
 
         playlist_menu = tk.Menu(self.menu, tearoff=False)
-        playlist_menu.add_command(label="Remove selected song", command=self._remove_selected)
+        playlist_menu.add_command(
+            label="Remove selected song", command=self._remove_selected, accelerator="Delete"
+        )
         playlist_menu.add_command(label="Clear playlist", command=self._clear_playlist)
         self.menu.add_cascade(label="Playlist", menu=playlist_menu)
 
@@ -146,6 +184,10 @@ class PlayerApp:
         self.theme_entry = 0
         self.view_menu.add_command(label=self._theme_menu_label(), command=self._toggle_theme)
         self.menu.add_cascade(label="View", menu=self.view_menu)
+
+        help_menu = tk.Menu(self.menu, tearoff=False)
+        help_menu.add_command(label="Keyboard shortcuts", command=self._show_shortcuts)
+        self.menu.add_cascade(label="Help", menu=help_menu)
 
         self.root.configure(menu=self.menu)
 
@@ -206,10 +248,12 @@ class PlayerApp:
         self.stop_button = IconButton(controls, "stop", command=self._on_stop)
         self.stop_button.pack(side="left", padx=(PAD, 0))
 
-        # Volume: icon (no command yet) and a short slider.
+        # Volume: the mute button and a short slider.
         volume_row = ttk.Frame(self.left)
         volume_row.grid(row=6, column=0)
-        self.volume_button = IconButton(volume_row, "volume", size=32)
+        self.volume_button = IconButton(
+            volume_row, "volume", command=self._on_volume_button, size=32
+        )
         self.volume_button.pack(side="left", padx=(0, GAP))
         self.volume_slider = Slider(volume_row, on_change=self._on_volume)
         self.volume_slider.configure(width=140)
@@ -683,17 +727,256 @@ class PlayerApp:
             self._stop_playback()
 
     def _set_initial_volume(self) -> None:
-        """Start with the volume saved in the settings."""
+        """Start with the volume and mute state saved in the settings."""
         volume = float(self.settings["volume"])
         self.volume_slider.set_fraction(volume)
         if self.player is not None:
-            self.player.set_volume(volume)
+            self.player.set_volume(0.0 if self._muted else volume)
+        self._update_volume_icon()
 
     def _on_volume(self, fraction: float) -> None:
         """Set the volume while the user moves the volume slider."""
+        self._apply_volume(fraction)
+
+    def _apply_volume(self, fraction: float) -> None:
+        """Move the slider, set the player volume and remember it; stays silent while muted."""
+        fraction = _clamp(float(fraction), 0.0, 1.0)
+        self.volume_slider.set_fraction(fraction)
         if self.player is not None:
-            self.player.set_volume(fraction)
+            self.player.set_volume(0.0 if self._muted else fraction)
         self.settings["volume"] = fraction
+        self._update_volume_icon()
+
+    def _volume_step(self, delta: float) -> None:
+        """Move the volume by one step, up or down (arrow keys)."""
+        self._apply_volume(self.volume_slider.fraction + delta)
+
+    def _on_volume_button(self) -> None:
+        """Click on the volume icon: mute or unmute."""
+        self._set_muted(not self._muted)
+
+    def _set_muted(self, muted: bool) -> None:
+        """Mute or unmute, keep the slider in place and remember the choice."""
+        self._muted = bool(muted)
+        self.settings["muted"] = self._muted
+        self.settings.save()
+        if self.player is not None:
+            if self._muted:
+                self.player.set_volume(0.0)
+            else:
+                # Unmuting goes back to the position of the slider.
+                self.player.set_volume(self.volume_slider.fraction)
+        self._update_volume_icon()
+
+    def _update_volume_icon(self) -> None:
+        """Icon of the volume button: a cross when muted or empty, fewer waves when low."""
+        fraction = self.volume_slider.fraction
+        if self._muted or fraction <= 0:
+            kind = "mute"
+        elif fraction < VOLUME_LOW_LIMIT:
+            kind = "volume_low"
+        else:
+            kind = "volume"
+        self.volume_button.set_kind(kind)
+
+    # ------------------------------------------------------------------
+    # Keyboard shortcuts
+    # ------------------------------------------------------------------
+
+    def _bind_shortcuts(self) -> None:
+        """Bind the shortcuts of the window; the table also gets its own space key."""
+        self.root.bind_all("<space>", self._on_space_key)
+        self.root.bind_all("<Left>", self._on_left_key)
+        self.root.bind_all("<Right>", self._on_right_key)
+        self.root.bind_all("<Up>", self._on_up_key)
+        self.root.bind_all("<Down>", self._on_down_key)
+        self.root.bind_all("<Control-Left>", self._on_ctrl_left_key)
+        self.root.bind_all("<Control-Right>", self._on_ctrl_right_key)
+        self.root.bind_all("<Control-Up>", self._on_ctrl_up_key)
+        self.root.bind_all("<Control-Down>", self._on_ctrl_down_key)
+        self.root.bind_all("<Control-o>", self._on_add_songs_key)
+        self.root.bind_all("<Control-Shift-O>", self._on_add_folder_key)
+        self.root.bind_all("<Control-f>", self._on_focus_search_key)
+        self.root.bind_all("<Delete>", self._on_delete_key)
+        self.root.bind_all("<m>", self._on_mute_key)
+        self.root.bind_all("<s>", self._on_shuffle_key)
+        self.root.bind_all("<r>", self._on_repeat_key)
+        # Space on the table runs before the Treeview class binding, which would
+        # otherwise toggle the selection of the row under the cursor.
+        self.tree.bind("<space>", self._on_tree_space)
+
+    def _focus_class(self) -> str:
+        """Widget class of the focused widget, or an empty string when there is none."""
+        try:
+            widget = self.root.focus_get()
+        except KeyError:
+            return ""
+        if widget is None:
+            return ""
+        try:
+            return widget.winfo_class()
+        except tk.TclError:
+            return ""
+
+    def _is_typing(self) -> bool:
+        """True while the focus is in a text field, where the keys must only type text."""
+        return self._focus_class() in TEXT_CLASSES
+
+    def _tree_has_focus(self) -> bool:
+        """True while the playlist table has the focus."""
+        return self._focus_class() == "Treeview"
+
+    def _on_space_key(self, _event=None) -> str | None:
+        """Space: play or pause, everywhere except in a text field."""
+        if self._is_typing():
+            return None
+        self._on_play_pause()
+        return "break"
+
+    def _on_tree_space(self, _event=None) -> str:
+        """Space on the playlist table: play or pause without changing the selection."""
+        self._on_play_pause()
+        return "break"
+
+    def _on_left_key(self, _event=None) -> str | None:
+        """Left arrow: previous song, unless the table or a text field has the focus."""
+        if self._is_typing() or self._tree_has_focus():
+            return None
+        self._on_previous()
+        return "break"
+
+    def _on_right_key(self, _event=None) -> str | None:
+        """Right arrow: next song, unless the table or a text field has the focus."""
+        if self._is_typing() or self._tree_has_focus():
+            return None
+        self._on_next()
+        return "break"
+
+    def _on_up_key(self, _event=None) -> str | None:
+        """Up arrow: volume up, unless the table or a text field has the focus."""
+        if self._is_typing() or self._tree_has_focus():
+            return None
+        self._volume_step(VOLUME_STEP)
+        return "break"
+
+    def _on_down_key(self, _event=None) -> str | None:
+        """Down arrow: volume down, unless the table or a text field has the focus."""
+        if self._is_typing() or self._tree_has_focus():
+            return None
+        self._volume_step(-VOLUME_STEP)
+        return "break"
+
+    def _on_ctrl_left_key(self, _event=None) -> str | None:
+        """Ctrl+Left: previous song, also while the table has the focus."""
+        if self._is_typing():
+            return None
+        self._on_previous()
+        return "break"
+
+    def _on_ctrl_right_key(self, _event=None) -> str | None:
+        """Ctrl+Right: next song, also while the table has the focus."""
+        if self._is_typing():
+            return None
+        self._on_next()
+        return "break"
+
+    def _on_ctrl_up_key(self, _event=None) -> str | None:
+        """Ctrl+Up: volume up, also while the table has the focus."""
+        if self._is_typing():
+            return None
+        self._volume_step(VOLUME_STEP)
+        return "break"
+
+    def _on_ctrl_down_key(self, _event=None) -> str | None:
+        """Ctrl+Down: volume down, also while the table has the focus."""
+        if self._is_typing():
+            return None
+        self._volume_step(-VOLUME_STEP)
+        return "break"
+
+    def _on_add_songs_key(self, _event=None) -> str:
+        """Ctrl+O: open the add songs dialog."""
+        self._add_songs()
+        return "break"
+
+    def _on_add_folder_key(self, _event=None) -> str:
+        """Ctrl+Shift+O: open the add folder dialog."""
+        self._add_folder()
+        return "break"
+
+    def _on_focus_search_key(self, _event=None) -> str:
+        """Ctrl+F: put the focus in the search box."""
+        self.search_entry.focus_set()
+        return "break"
+
+    def _on_delete_key(self, _event=None) -> str | None:
+        """Delete: remove the selected song when the table has the focus."""
+        if not self._tree_has_focus():
+            return None
+        self._remove_selected()
+        return "break"
+
+    def _on_mute_key(self, _event=None) -> str | None:
+        """M: mute or unmute, everywhere except in a text field."""
+        if self._is_typing():
+            return None
+        self._on_volume_button()
+        return "break"
+
+    def _on_shuffle_key(self, _event=None) -> str | None:
+        """S: turn shuffle on or off, everywhere except in a text field."""
+        if self._is_typing():
+            return None
+        self._on_shuffle()
+        return "break"
+
+    def _on_repeat_key(self, _event=None) -> str | None:
+        """R: cycle the repeat mode, everywhere except in a text field."""
+        if self._is_typing():
+            return None
+        self._on_repeat()
+        return "break"
+
+    def _show_shortcuts(self) -> None:
+        """Open the Keyboard shortcuts window, or bring it to the front when it is already open."""
+        if self._shortcuts_window is not None and self._shortcuts_window.winfo_exists():
+            self._shortcuts_window.lift()
+            self._shortcuts_window.focus_set()
+            return
+        palette = theme.current_palette()
+        window = tk.Toplevel(self.root)
+        self._shortcuts_window = window
+        window.title("Keyboard shortcuts")
+        window.configure(bg=palette["bg"])
+        window.resizable(False, False)
+        window.transient(self.root)
+        window.protocol("WM_DELETE_WINDOW", self._close_shortcuts)
+        window.bind("<Escape>", lambda _event: self._close_shortcuts())
+
+        # Two columns: the key on the left, the action on the right.
+        frame = ttk.Frame(window, padding=PAD)
+        frame.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(frame, text="KEYBOARD SHORTCUTS", style="Section.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, GAP)
+        )
+        for row, (key, action) in enumerate(SHORTCUTS, start=1):
+            ttk.Label(frame, text=key, style="Section.TLabel").grid(
+                row=row, column=0, sticky="w", padx=(0, PAD * 2), pady=2
+            )
+            ttk.Label(frame, text=action).grid(row=row, column=1, sticky="w", pady=2)
+
+        # Place the window over the middle of the main one.
+        window.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - window.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - window.winfo_height()) // 2
+        window.geometry(f"+{max(0, x)}+{max(0, y)}")
+        window.focus_set()
+
+    def _close_shortcuts(self) -> None:
+        """Close the Keyboard shortcuts window."""
+        if self._shortcuts_window is not None and self._shortcuts_window.winfo_exists():
+            self._shortcuts_window.destroy()
+        self._shortcuts_window = None
 
     # ------------------------------------------------------------------
     # Now playing text, theme and closing
@@ -809,6 +1092,9 @@ class PlayerApp:
         # The search text follows the theme too, muted while the placeholder shows.
         self._style_search_entry()
         self.tree.tag_configure("playing", foreground=palette["accent"])
+        # The shortcuts window, when open, follows the theme as well.
+        if self._shortcuts_window is not None and self._shortcuts_window.winfo_exists():
+            self._shortcuts_window.configure(bg=palette["bg"])
 
     def _on_close(self) -> None:
         """Cancel the timer, stop the music, save the settings and close the window."""
