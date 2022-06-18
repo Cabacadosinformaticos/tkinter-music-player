@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 from . import config, metadata, theme
+from .m3u import load_m3u, save_m3u
 from .playlist import Playlist, Track, format_duration
 from .player import AudioPlayer, PlayerError
 from .widgets import CoverArt, IconButton, Slider
@@ -23,6 +25,15 @@ AUDIO_FILETYPES = (
     ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a"),
     ("All files", "*.*"),
 )
+
+# Filter of the playlist dialogs: the usual M3U files, with the UTF-8 variant.
+PLAYLIST_FILETYPES = (
+    ("M3U playlists", "*.m3u *.m3u8"),
+    ("All files", "*.*"),
+)
+
+# Window size used when there is no saved geometry to restore.
+DEFAULT_GEOMETRY = "1040x680"
 
 # Spacing of the layout, in pixels: window padding and gap between widgets.
 PAD = 16
@@ -126,8 +137,10 @@ class PlayerApp:
         self._build_right_panel()
         self._bind_shortcuts()
         self._apply_palette()
+        self._restore_session()
         self._refresh_playlist()
-        self._update_song_labels(None)
+        if self.playlist.current >= 0:
+            self._select_row(self.playlist.current)
         self._set_initial_volume()
         self._tick()
 
@@ -139,7 +152,7 @@ class PlayerApp:
         """Title, icon, size and background of the root window, plus the two columns."""
         palette = theme.current_palette()
         self.root.title("Music Player")
-        self.root.geometry("1040x680")
+        self._restore_window_geometry()
         self.root.minsize(900, 600)
         self.root.configure(bg=palette["bg"])
         try:
@@ -158,6 +171,23 @@ class PlayerApp:
         self.container.columnconfigure(0, weight=1, minsize=380)
         self.container.columnconfigure(1, weight=2)
 
+    def _restore_window_geometry(self) -> None:
+        """Use the size and position of the last session, moved back on screen when it is off."""
+        geometry = str(self.settings["window_geometry"]).strip()
+        match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geometry)
+        if match is None:
+            self.root.geometry(DEFAULT_GEOMETRY)
+            return
+        width, height, x, y = (int(value) for value in match.groups())
+        on_screen = (
+            0 <= x < self.root.winfo_screenwidth() and 0 <= y < self.root.winfo_screenheight()
+        )
+        if on_screen:
+            self.root.geometry(f"{width}x{height}+{x}+{y}")
+        else:
+            # The saved position would put the window off the screen: keep the size only.
+            self.root.geometry(f"{width}x{height}")
+
     def _build_menu(self) -> None:
         """File, Playlist, View and Help menus, kept in the native menu bar colours."""
         self.menu = tk.Menu(self.root)
@@ -169,6 +199,9 @@ class PlayerApp:
         file_menu.add_command(
             label="Add folder...", command=self._add_folder, accelerator="Ctrl+Shift+O"
         )
+        file_menu.add_separator()
+        file_menu.add_command(label="Open playlist...", command=self._open_playlist)
+        file_menu.add_command(label="Save playlist as...", command=self._save_playlist_as)
         file_menu.add_separator()
         file_menu.add_command(label="Quit", command=self._on_close)
         self.menu.add_cascade(label="File", menu=file_menu)
@@ -379,6 +412,26 @@ class PlayerApp:
             self.tree.item(iid, tags=("playing",))
             self.tree.see(iid)
 
+    def _restore_session(self) -> None:
+        """Rebuild the playlist and the selection of the last session, without playing anything."""
+        paths = [path for path in self.settings["last_playlist"] if os.path.isfile(path)]
+        if not paths:
+            self._update_song_labels(None)
+            return
+        self.playlist.add_many([metadata.read_track(path) for path in paths])
+        index = int(self.settings["last_index"])
+        if 0 <= index < len(self.playlist):
+            self.playlist.select(index)
+        self._update_song_labels(self.playlist.current_track())
+
+    def _select_row(self, index: int) -> None:
+        """Select one row of the table, when the current search shows it."""
+        iid = str(index)
+        if self.tree.exists(iid):
+            self.tree.selection_set(iid)
+            self.tree.focus(iid)
+            self.tree.see(iid)
+
     def _selected_index(self) -> int | None:
         """Index of the selected row, or None when no row is selected."""
         selection = self.tree.selection()
@@ -439,12 +492,27 @@ class PlayerApp:
             added += 1
         if added:
             self._refresh_playlist()
+            self._remember_playlist()
         return added
 
     def _remember_folder(self, folder: str) -> None:
         """Remember the folder used by the dialogs and save the settings."""
         self.settings["music_dir"] = folder
         self.settings.save()
+
+    def _remember_playlist(self) -> None:
+        """Store the songs and the selected one, then write the settings file."""
+        self.settings["last_playlist"] = [track.path for track in self.playlist.tracks]
+        index = self._selected_index()
+        self.settings["last_index"] = index if index is not None else self.playlist.current
+        self._save_settings()
+
+    def _save_settings(self) -> None:
+        """Write the settings file; a disk problem must never stop the player."""
+        try:
+            self.settings.save()
+        except OSError:
+            pass
 
     def _initial_dir(self) -> str:
         """Folder the dialogs open in: the last one used, then music/, then the home folder."""
@@ -466,6 +534,7 @@ class PlayerApp:
         self.playlist.remove(index)
         self._refresh_playlist()
         self._update_song_labels(self.playlist.current_track())
+        self._remember_playlist()
 
     def _clear_playlist(self) -> None:
         """Stop the music and empty the playlist."""
@@ -473,6 +542,67 @@ class PlayerApp:
         self.playlist.clear()
         self._refresh_playlist()
         self._update_song_labels(None)
+        self._remember_playlist()
+
+    def _open_playlist(self) -> None:
+        """Ask for an M3U file and replace the playlist with the songs it lists."""
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Open playlist",
+            initialdir=self._initial_dir(),
+            filetypes=PLAYLIST_FILETYPES,
+        )
+        if not path:
+            return
+        self._load_playlist(path)
+
+    def _load_playlist(self, path: str) -> None:
+        """Replace the playlist with the file entries, skipping the ones whose file is gone."""
+        try:
+            entries = load_m3u(path)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Music Player", f"Could not open the playlist:\n{error}")
+            return
+        self._stop_playback()
+        self.playlist.clear()
+        skipped = 0
+        for entry in entries:
+            if not os.path.isfile(entry.path):
+                skipped += 1
+                continue
+            self.playlist.add(self._fresh_track(entry))
+        self._refresh_playlist()
+        self._update_song_labels(self.playlist.current_track())
+        self._remember_playlist()
+        if skipped:
+            messagebox.showinfo(
+                "Music Player",
+                f"{skipped} song(s) in the playlist could not be found and were skipped.",
+            )
+
+    def _fresh_track(self, entry: Track) -> Track:
+        """Read the file tags again; the playlist title is kept when the file has no tags."""
+        track = metadata.read_track(entry.path)
+        fallback = os.path.splitext(os.path.basename(entry.path))[0]
+        if track.title == fallback and entry.title:
+            track.title = entry.title
+        return track
+
+    def _save_playlist_as(self) -> None:
+        """Ask for a file name and write the current songs as an M3U playlist."""
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save playlist as",
+            initialdir=self._initial_dir(),
+            defaultextension=".m3u",
+            filetypes=PLAYLIST_FILETYPES,
+        )
+        if not path:
+            return
+        try:
+            save_m3u(path, self.playlist.tracks)
+        except OSError as error:
+            messagebox.showerror("Music Player", f"Could not save the playlist:\n{error}")
 
     # ------------------------------------------------------------------
     # Search box
@@ -1097,7 +1227,7 @@ class PlayerApp:
             self._shortcuts_window.configure(bg=palette["bg"])
 
     def _on_close(self) -> None:
-        """Cancel the timer, stop the music, save the settings and close the window."""
+        """Cancel the timer, stop the music, save the whole session and close the window."""
         if self._closing:
             return
         self._closing = True
@@ -1106,7 +1236,20 @@ class PlayerApp:
             self._timer = None
         if self.player is not None:
             self.player.stop()
-        self.settings.save()
+        # The geometry is only worth keeping in the normal state, not minimised
+        # or maximised.
+        try:
+            if self.root.state() == "normal":
+                self.settings["window_geometry"] = self.root.geometry()
+        except tk.TclError:
+            pass
+        self.settings["volume"] = self.volume_slider.fraction
+        self.settings["muted"] = self._muted
+        self.settings["shuffle"] = self.playlist.shuffle
+        self.settings["repeat"] = self.playlist.repeat
+        self.settings["theme"] = theme.current_theme()
+        # Stores the songs and the selected one, then saves everything at once.
+        self._remember_playlist()
         self.root.destroy()
 
 
