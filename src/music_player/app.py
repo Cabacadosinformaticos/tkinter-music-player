@@ -12,6 +12,8 @@ import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 from . import config, metadata, theme
+from .history import HistoryBackend, HistoryError, make_backend
+from .history_window import HistoryWindow
 from .m3u import load_m3u, save_m3u
 from .playlist import Playlist, Track, format_duration
 from .player import AudioPlayer, PlayerError
@@ -96,9 +98,13 @@ class PlayerApp:
     """Main window: now playing panel, playlist, transport controls and theme."""
 
     def __init__(
-        self, root: tk.Tk, settings: config.Settings, player: AudioPlayer | None = None
+        self,
+        root: tk.Tk,
+        settings: config.Settings,
+        player: AudioPlayer | None = None,
+        history: HistoryBackend | None = None,
     ) -> None:
-        """Build the window; `player` is injectable and defaults to a real AudioPlayer."""
+        """Build the window; `player` and `history` are injectable and default to the real ones."""
         self.root = root
         self.settings = settings
         self.playlist = Playlist()
@@ -114,6 +120,18 @@ class PlayerApp:
                 # buttons simply do nothing.
                 messagebox.showerror("Music Player", str(error))
                 self.player = None
+        # Play history: built from the settings, or injected by the tests. A
+        # backend that cannot be opened only warns: the player works without it.
+        self.history = history
+        if self.history is None:
+            try:
+                self.history = make_backend(str(settings["history_backend"]))
+            except (HistoryError, ValueError) as error:
+                messagebox.showwarning("Music Player", f"Could not open the play history: {error}")
+                self.history = None
+        # Warn about a failing history backend only once, like the old player did.
+        self._history_warned = False
+        self._history_window: HistoryWindow | None = None
         self._timer: str | None = None
         self._closing = False
         self._cover_size = 320
@@ -217,6 +235,12 @@ class PlayerApp:
         self.theme_entry = 0
         self.view_menu.add_command(label=self._theme_menu_label(), command=self._toggle_theme)
         self.menu.add_cascade(label="View", menu=self.view_menu)
+
+        history_menu = tk.Menu(self.menu, tearoff=False)
+        history_menu.add_command(label="View play history...", command=self._show_history)
+        history_menu.add_separator()
+        history_menu.add_command(label="Clear play history...", command=self._clear_history)
+        self.menu.add_cascade(label="History", menu=history_menu)
 
         help_menu = tk.Menu(self.menu, tearoff=False)
         help_menu.add_command(label="Keyboard shortcuts", command=self._show_shortcuts)
@@ -605,6 +629,62 @@ class PlayerApp:
             messagebox.showerror("Music Player", f"Could not save the playlist:\n{error}")
 
     # ------------------------------------------------------------------
+    # Play history
+    # ------------------------------------------------------------------
+
+    def _show_history(self) -> None:
+        """Open the play history window, or bring the open one to the front and refresh it."""
+        if self.history is None:
+            messagebox.showinfo("Music Player", "The play history is not available")
+            return
+        if self._history_window is not None and self._history_window.winfo_exists():
+            self._history_window.refresh()
+            self._history_window.lift()
+            self._history_window.focus_set()
+            return
+        self._history_window = HistoryWindow(self.root, self.history)
+
+    def _clear_history(self) -> None:
+        """Ask for confirmation and delete every saved play."""
+        if self.history is None:
+            messagebox.showinfo("Music Player", "The play history is not available")
+            return
+        if not messagebox.askyesno("Music Player", "Delete every saved play?"):
+            return
+        try:
+            self.history.clear()
+        except Exception as error:
+            messagebox.showerror("Music Player", f"Could not clear the play history: {error}")
+            return
+        # The open window, if any, must show the empty list right away.
+        if self._history_window is not None and self._history_window.winfo_exists():
+            self._history_window.refresh()
+
+    def _switch_history(self, kind: str) -> str | None:
+        """Use the history backend named `kind`; None on success, the error text on failure."""
+        try:
+            backend = make_backend(str(kind))
+        except (HistoryError, ValueError) as error:
+            # The old backend is kept, so the player keeps recording where it did.
+            return str(error)
+        if self.history is not None:
+            try:
+                self.history.close()
+            except Exception:
+                # A backend that fails to close must not stop the switch.
+                pass
+        self.history = backend
+        self._history_warned = False
+        # The open window belongs to the old backend: it is dropped, so the next
+        # open builds a fresh one over the new backend.
+        if self._history_window is not None and self._history_window.winfo_exists():
+            self._history_window.destroy()
+        self._history_window = None
+        self.settings["history_backend"] = str(kind)
+        self._save_settings()
+        return None
+
+    # ------------------------------------------------------------------
     # Search box
     # ------------------------------------------------------------------
 
@@ -702,6 +782,23 @@ class PlayerApp:
             text=format_duration(track.duration) if track.duration > 0 else "--:--"
         )
         self._highlight_playing()
+        # The song really started, so this play is saved; pausing, resuming and
+        # seeking never land here.
+        self._record_play(track)
+
+    def _record_play(self, track: Track) -> None:
+        """Save one play in the history; a failure warns once and never stops the music."""
+        if self.history is None:
+            return
+        try:
+            self.history.record(track.display_name, duration=track.duration)
+        except Exception as error:
+            if not self._history_warned:
+                messagebox.showwarning("Music Player", f"Could not save the play history: {error}")
+                self._history_warned = True
+            return
+        # The write worked, allow another warning if the backend fails again.
+        self._history_warned = False
 
     def _stop_playback(self) -> None:
         """Stop the audio and put the progress display back to the start."""
@@ -1236,6 +1333,13 @@ class PlayerApp:
             self._timer = None
         if self.player is not None:
             self.player.stop()
+        # Release the history backend; a failure here must not block the close.
+        if self.history is not None:
+            try:
+                self.history.close()
+            except Exception:
+                pass
+            self.history = None
         # The geometry is only worth keeping in the normal state, not minimised
         # or maximised.
         try:
