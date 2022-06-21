@@ -17,6 +17,7 @@ from .history_window import HistoryWindow
 from .m3u import load_m3u, save_m3u
 from .playlist import Playlist, Track, format_duration
 from .player import AudioPlayer, PlayerError
+from .settings_dialog import SettingsDialog
 from .widgets import CoverArt, IconButton, Slider
 
 # Audio files accepted by the open dialog and when adding a whole folder.
@@ -66,6 +67,7 @@ SHORTCUTS = (
     ("Ctrl+O", "Add songs"),
     ("Ctrl+Shift+O", "Add folder"),
     ("Ctrl+F", "Focus the search box"),
+    ("Ctrl+,", "Open the settings"),
     ("Delete", "Remove the selected song"),
     ("Ctrl+Left / Ctrl+Right", "Previous or next song, also in the table"),
     ("Ctrl+Up / Ctrl+Down", "Volume, also in the table"),
@@ -220,6 +222,10 @@ class PlayerApp:
         file_menu.add_separator()
         file_menu.add_command(label="Open playlist...", command=self._open_playlist)
         file_menu.add_command(label="Save playlist as...", command=self._save_playlist_as)
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Settings...", command=self._open_settings, accelerator="Ctrl+,"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Quit", command=self._on_close)
         self.menu.add_cascade(label="File", menu=file_menu)
@@ -667,6 +673,15 @@ class PlayerApp:
         except (HistoryError, ValueError) as error:
             # The old backend is kept, so the player keeps recording where it did.
             return str(error)
+        # The SQL Server backend connects lazily, so a wrong server or a missing
+        # db_config.ini would only show up when a song is played: check it now
+        # and keep the old backend when it cannot be reached.
+        if str(kind) == "sqlserver":
+            try:
+                backend.entries()
+            except Exception as error:
+                backend.close()
+                return str(error)
         if self.history is not None:
             try:
                 self.history.close()
@@ -1024,6 +1039,7 @@ class PlayerApp:
         self.root.bind_all("<Control-o>", self._on_add_songs_key)
         self.root.bind_all("<Control-Shift-O>", self._on_add_folder_key)
         self.root.bind_all("<Control-f>", self._on_focus_search_key)
+        self.root.bind_all("<Control-comma>", self._on_settings_key)
         self.root.bind_all("<Delete>", self._on_delete_key)
         self.root.bind_all("<m>", self._on_mute_key)
         self.root.bind_all("<s>", self._on_shuffle_key)
@@ -1134,6 +1150,11 @@ class PlayerApp:
     def _on_focus_search_key(self, _event=None) -> str:
         """Ctrl+F: put the focus in the search box."""
         self.search_entry.focus_set()
+        return "break"
+
+    def _on_settings_key(self, _event=None) -> str:
+        """Ctrl+,: open the settings dialog."""
+        self._open_settings()
         return "break"
 
     def _on_delete_key(self, _event=None) -> str | None:
@@ -1285,10 +1306,29 @@ class PlayerApp:
     def _toggle_theme(self) -> None:
         """Swap dark and light, repaint the widgets and remember the choice."""
         other = "light" if theme.current_theme() == "dark" else "dark"
-        theme.apply_theme(self.root, other)
+        self._set_theme(other)
+
+    def _open_settings(self) -> SettingsDialog:
+        """Open the settings dialog over the main window and return it."""
+        # The backend in use is the history one when it opened, otherwise the
+        # choice saved in the settings.
+        current = self.history.name if self.history is not None else str(
+            self.settings["history_backend"]
+        )
+        return SettingsDialog(
+            self.root,
+            self.settings,
+            current,
+            on_apply_backend=self._switch_history,
+            on_apply_theme=self._set_theme,
+        )
+
+    def _set_theme(self, name: str) -> None:
+        """Apply a named theme, repaint the widgets and remember the choice."""
+        theme.apply_theme(self.root, name)
         self._apply_palette()
         self.view_menu.entryconfigure(self.theme_entry, label=self._theme_menu_label())
-        self.settings["theme"] = other
+        self.settings["theme"] = theme.current_theme()
         self.settings.save()
 
     def _apply_palette(self) -> None:
