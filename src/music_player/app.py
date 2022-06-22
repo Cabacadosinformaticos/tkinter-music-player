@@ -18,6 +18,7 @@ from .m3u import load_m3u, save_m3u
 from .playlist import Playlist, Track, format_duration
 from .player import AudioPlayer, PlayerError
 from .settings_dialog import SettingsDialog
+from .stats_window import StatsWindow
 from .widgets import CoverArt, IconButton, Slider
 
 # Audio files accepted by the open dialog and when adding a whole folder.
@@ -134,6 +135,7 @@ class PlayerApp:
         # Warn about a failing history backend only once, like the old player did.
         self._history_warned = False
         self._history_window: HistoryWindow | None = None
+        self._stats_window: StatsWindow | None = None
         self._timer: str | None = None
         self._closing = False
         self._cover_size = 320
@@ -244,6 +246,7 @@ class PlayerApp:
 
         history_menu = tk.Menu(self.menu, tearoff=False)
         history_menu.add_command(label="View play history...", command=self._show_history)
+        history_menu.add_command(label="Statistics...", command=self._show_stats)
         history_menu.add_separator()
         history_menu.add_command(label="Clear play history...", command=self._clear_history)
         self.menu.add_cascade(label="History", menu=history_menu)
@@ -650,6 +653,18 @@ class PlayerApp:
             return
         self._history_window = HistoryWindow(self.root, self.history)
 
+    def _show_stats(self) -> None:
+        """Open the statistics window, or bring the open one to the front and refresh it."""
+        if self.history is None:
+            messagebox.showinfo("Music Player", "The play history is not available")
+            return
+        if self._stats_window is not None and self._stats_window.winfo_exists():
+            self._stats_window.refresh()
+            self._stats_window.lift()
+            self._stats_window.focus_set()
+            return
+        self._stats_window = StatsWindow(self.root, self.history)
+
     def _clear_history(self) -> None:
         """Ask for confirmation and delete every saved play."""
         if self.history is None:
@@ -690,11 +705,14 @@ class PlayerApp:
                 pass
         self.history = backend
         self._history_warned = False
-        # The open window belongs to the old backend: it is dropped, so the next
-        # open builds a fresh one over the new backend.
+        # The open windows belong to the old backend: they are dropped, so the
+        # next open builds fresh ones over the new backend.
         if self._history_window is not None and self._history_window.winfo_exists():
             self._history_window.destroy()
         self._history_window = None
+        if self._stats_window is not None and self._stats_window.winfo_exists():
+            self._stats_window.destroy()
+        self._stats_window = None
         self.settings["history_backend"] = str(kind)
         self._save_settings()
         return None
@@ -1362,6 +1380,9 @@ class PlayerApp:
         # The shortcuts window, when open, follows the theme as well.
         if self._shortcuts_window is not None and self._shortcuts_window.winfo_exists():
             self._shortcuts_window.configure(bg=palette["bg"])
+        # The statistics window, when open, follows the theme as well.
+        if self._stats_window is not None and self._stats_window.winfo_exists():
+            self._stats_window.apply_palette()
 
     def _on_close(self) -> None:
         """Cancel the timer, stop the music, save the whole session and close the window."""
