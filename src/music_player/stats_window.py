@@ -17,7 +17,7 @@ from .history import HistoryBackend, HistoryEntry, HistoryError
 from .history.stats import listening_by_day, top_songs, total_listening_seconds
 
 # Size of the window when it opens and the smallest size the user may drag it to.
-WINDOW_SIZE = "860x560"
+WINDOW_SIZE = "900x640"
 MIN_WIDTH = 700
 MIN_HEIGHT = 480
 
@@ -30,6 +30,11 @@ CARD_PAD = 16
 # How many songs the left chart shows and how many days the right chart covers.
 TOP_LIMIT = 8
 CHART_DAYS = 14
+
+# Height of one row of the most played chart, in pixels: a title line with its
+# rounded bar underneath. The bar itself is 10 px tall.
+TOP_ROW_HEIGHT = 46
+TOP_BAR_HEIGHT = 10
 
 # Weekday initials under the daily bars, Monday first, so the labels stay short.
 WEEKDAY_INITIALS = ("M", "T", "W", "T", "F", "S", "S")
@@ -117,10 +122,12 @@ class StatsWindow(tk.Toplevel):
         self._font = _font_object(self, 10)
         self._big_font = _font_object(self, 22, "bold")
         self._section_font = _font_object(self, 9, "bold")
-        # Labels painted by apply_palette(): the card values, the card captions
-        # and the titles inside the two surface panels.
+        # Widgets painted by apply_palette(): the card frames with their labels,
+        # the two surface panels and the titles inside them.
+        self._card_frames: list[tk.Frame] = []
         self._card_values: list[tk.Label] = []
         self._card_captions: list[tk.Label] = []
+        self._panels: list[tk.Frame] = []
         self._surface_labels: list[tk.Label] = []
         palette = theme.current_palette()
         self.title("Listening statistics")
@@ -179,32 +186,74 @@ class StatsWindow(tk.Toplevel):
         self._build_card(cards, 2, "Different songs")
 
     def _build_card(self, parent, column: int, caption: str) -> None:
-        """One card with a big number on top and its small muted caption below."""
-        card = ttk.Frame(parent, style="Card.TFrame", padding=CARD_PAD)
+        """One card with a big number on top and its small muted caption below.
+
+        A plain tk frame is used on purpose: the sv-ttk "Card.TFrame" style paints
+        itself from an image, so the flat labels inside it would not match the
+        card colour. Here the frame, the border and both labels are set from the
+        same palette keys, and apply_palette() repaints all of them together.
+        """
+        palette = theme.current_palette()
+        card = tk.Frame(
+            parent,
+            bg=palette["surface_alt"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=palette["border"],
+            highlightcolor=palette["border"],
+            padx=CARD_PAD,
+            pady=CARD_PAD,
+        )
         card.grid(row=0, column=column, sticky="nsew", padx=(0, GAP if column < 2 else 0))
-        value = tk.Label(card, font=self._big_font, anchor="w")
+        value = tk.Label(
+            card,
+            font=self._big_font,
+            anchor="w",
+            bg=palette["surface_alt"],
+            fg=palette["text"],
+        )
         value.pack(fill="x")
-        caption_label = tk.Label(card, text=caption, font=self._font, anchor="w")
+        caption_label = tk.Label(
+            card,
+            text=caption,
+            font=self._font,
+            anchor="w",
+            bg=palette["surface_alt"],
+            fg=palette["text_muted"],
+        )
         caption_label.pack(fill="x", pady=(2, 0))
+        self._card_frames.append(card)
         self._card_values.append(value)
         self._card_captions.append(caption_label)
 
     def _build_top_chart(self, parent) -> None:
         """Left half: the title and the canvas of the most played songs."""
-        panel = ttk.Frame(parent, style="Panel.TFrame", padding=PAD)
+        palette = theme.current_palette()
+        panel = tk.Frame(parent, bg=palette["surface"], bd=0, padx=PAD, pady=PAD)
         panel.grid(row=0, column=0, sticky="nsew", padx=(0, GAP // 2))
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(1, weight=1)
-        title = tk.Label(panel, text="Most played", font=self._section_font, anchor="w")
+        title = tk.Label(
+            panel,
+            text="Most played",
+            font=self._section_font,
+            anchor="w",
+            bg=palette["surface"],
+            fg=palette["text_muted"],
+        )
         title.grid(row=0, column=0, sticky="w", pady=(0, GAP))
+        self._panels.append(panel)
         self._surface_labels.append(title)
-        self.top_canvas = tk.Canvas(panel, highlightthickness=0, borderwidth=0)
+        self.top_canvas = tk.Canvas(
+            panel, highlightthickness=0, borderwidth=0, bg=palette["surface"]
+        )
         self.top_canvas.grid(row=1, column=0, sticky="nsew")
         self.top_canvas.bind("<Configure>", lambda _event: self._draw_top())
 
     def _build_daily_chart(self, parent) -> None:
         """Right half: the title and the canvas of the listening time per day."""
-        panel = ttk.Frame(parent, style="Panel.TFrame", padding=PAD)
+        palette = theme.current_palette()
+        panel = tk.Frame(parent, bg=palette["surface"], bd=0, padx=PAD, pady=PAD)
         panel.grid(row=0, column=1, sticky="nsew", padx=(GAP // 2, 0))
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(1, weight=1)
@@ -213,10 +262,15 @@ class StatsWindow(tk.Toplevel):
             text=f"Listening time, last {CHART_DAYS} days",
             font=self._section_font,
             anchor="w",
+            bg=palette["surface"],
+            fg=palette["text_muted"],
         )
         title.grid(row=0, column=0, sticky="w", pady=(0, GAP))
+        self._panels.append(panel)
         self._surface_labels.append(title)
-        self.daily_canvas = tk.Canvas(panel, highlightthickness=0, borderwidth=0)
+        self.daily_canvas = tk.Canvas(
+            panel, highlightthickness=0, borderwidth=0, bg=palette["surface"]
+        )
         self.daily_canvas.grid(row=1, column=0, sticky="nsew")
         self.daily_canvas.bind("<Configure>", lambda _event: self._draw_daily())
 
@@ -277,10 +331,20 @@ class StatsWindow(tk.Toplevel):
         """Repaint the window, the cards and both charts with the current theme."""
         palette = theme.current_palette()
         self.configure(bg=palette["bg"])
+        # Each frame and the labels inside it take their colour from the same
+        # palette key, so no label sits on a lighter rectangle.
+        for card in self._card_frames:
+            card.configure(
+                bg=palette["surface_alt"],
+                highlightbackground=palette["border"],
+                highlightcolor=palette["border"],
+            )
         for label in self._card_values:
             label.configure(background=palette["surface_alt"], foreground=palette["text"])
         for label in self._card_captions:
             label.configure(background=palette["surface_alt"], foreground=palette["text_muted"])
+        for panel in self._panels:
+            panel.configure(bg=palette["surface"])
         for label in self._surface_labels:
             label.configure(background=palette["surface"], foreground=palette["text_muted"])
         for canvas in (self.top_canvas, self.daily_canvas):
@@ -305,7 +369,12 @@ class StatsWindow(tk.Toplevel):
         return int(width), int(height)
 
     def _draw_top(self) -> None:
-        """Horizontal bars of the most played songs, longest first."""
+        """One title line and one rounded bar per song, most played first.
+
+        Each row uses the full chart width: the title is left aligned on its own
+        line and the bar sits under it, so long names are not squeezed into a
+        narrow column. Only the rows that fit in the canvas are drawn.
+        """
         canvas = self.top_canvas
         canvas.delete("all")
         if self._summary is None:
@@ -314,7 +383,7 @@ class StatsWindow(tk.Toplevel):
         palette = theme.current_palette()
         top = self._summary.top
         if not top:
-            # Empty state: one centred muted message instead of the bars.
+            # Empty state: one centred muted message instead of the rows.
             canvas.create_text(
                 width / 2.0,
                 height / 2.0,
@@ -326,35 +395,46 @@ class StatsWindow(tk.Toplevel):
                 tags="empty",
             )
             return
-        row_height = height / len(top)
-        bar_height = max(6.0, min(18.0, row_height * 0.5))
-        label_width = max(70, int(width * 0.38))
-        bar_left = label_width + GAP
-        bar_max = max(10.0, width - 44 - bar_left)
-        tallest = top[0][1] or 1
-        for index, (title, plays) in enumerate(top):
-            center_y = row_height * (index + 0.5)
-            # Song title cut with an ellipsis so it always fits its column.
+
+        # Draw the first rows that fit and centre the block vertically.
+        max_rows = max(1, int(height // TOP_ROW_HEIGHT))
+        rows = top[:max_rows]
+        block_top = max(0.0, (height - len(rows) * TOP_ROW_HEIGHT) / 2.0)
+        tallest = rows[0][1] or 1
+
+        # Width of the widest play count, kept free on the right of every bar.
+        count_width = max(self._font.measure(str(plays)) for _title, plays in rows)
+        bar_max = max(TOP_BAR_HEIGHT * 2.0, width - count_width - GAP - 2.0)
+        title_width = max(20, width - 4)
+        radius = TOP_BAR_HEIGHT / 2.0
+        # Vertical position of the bar centre inside a row: under the title line.
+        bar_center = 4.0 + self._font.metrics("linespace") + 6.0 + radius
+
+        for index, (title, plays) in enumerate(rows):
+            row_top = block_top + index * TOP_ROW_HEIGHT
+            # Title over the full chart width, shortened only when it does not fit.
             canvas.create_text(
-                label_width,
-                center_y,
-                text=_shorten(title, self._font, label_width - GAP),
-                anchor="e",
+                2,
+                row_top + 4,
+                text=_shorten(title, self._font, title_width),
+                anchor="nw",
                 fill=palette["text"],
                 font=self._font,
             )
-            length = max(bar_height, bar_max * plays / tallest)
+            center_y = row_top + bar_center
+            length = min(bar_max, max(TOP_BAR_HEIGHT * 1.2, bar_max * plays / tallest))
+            # Round caps on an inset segment: the bar spans x 0 to length exactly.
             canvas.create_line(
-                bar_left,
+                radius,
                 center_y,
-                bar_left + length,
+                length - radius,
                 center_y,
                 fill=palette["accent"],
-                width=bar_height,
+                width=TOP_BAR_HEIGHT,
                 capstyle="round",
             )
             canvas.create_text(
-                bar_left + length + GAP,
+                length + GAP // 2,
                 center_y,
                 text=str(plays),
                 anchor="w",
