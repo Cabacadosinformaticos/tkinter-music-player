@@ -154,3 +154,47 @@ def test_load_absolute_path_stays_absolute(tmp_path):
     loaded = load_m3u(str(playlist))
 
     assert loaded[0].path == os.path.normpath(str(song))
+
+
+def test_round_trip_title_containing_separator_with_artist(tmp_path):
+    """A title with " - " keeps its exact text when the track has an artist (split on the first separator)."""
+    folder = tmp_path / "lists"
+    folder.mkdir()
+    music = tmp_path / "music"
+    music.mkdir()
+    song = music / "halo.mp3"
+    song.write_bytes(b"x")
+    playlist = folder / "halo.m3u"
+
+    save_m3u(
+        str(playlist),
+        [Track(path=str(song), title="Halo - Live", artist="Beyonce", duration=200.0)],
+    )
+    loaded = load_m3u(str(playlist))
+
+    assert loaded[0].artist == "Beyonce"
+    assert loaded[0].title == "Halo - Live"
+    assert loaded[0].duration == 200.0
+
+
+def test_loader_splits_only_on_the_first_separator(tmp_path):
+    """Reading "Artist - Title - More" keeps everything after the first " - " in the title."""
+    playlist = tmp_path / "first.m3u"
+    playlist.write_text("#EXTM3U\n#EXTINF:12,The Band - Song - Live\nsong.mp3\n", encoding="utf-8")
+
+    loaded = load_m3u(str(playlist))
+
+    assert loaded[0].artist == "The Band"
+    assert loaded[0].title == "Song - Live"
+
+
+def test_title_without_artist_containing_separator_is_ambiguous(tmp_path):
+    """Known limitation (see the module comment): with no artist "Hello - World" is read as artist "Hello", title "World"."""
+    playlist = tmp_path / "ambiguous.m3u"
+    playlist.write_text("#EXTM3U\n#EXTINF:0,Hello - World\nsong.mp3\n", encoding="utf-8")
+
+    loaded = load_m3u(str(playlist))
+
+    assert loaded[0].artist == "Hello"
+    assert loaded[0].title == "World"
+

@@ -1,5 +1,16 @@
 # M3U playlist files: writes the usual "#EXTM3U" list with "#EXTINF" lines and
 # reads it back in a tolerant way (BOM, CRLF, comments, missing tags).
+#
+# An EXTINF line holds one single text: "Artist - Title", or just the title when
+# the track has no artist. There is no separate field for the artist, so a title
+# that itself contains " - " cannot be told apart from "Artist - Title". The
+# loader therefore splits on the FIRST " - " only (artist names rarely contain
+# it, titles often do), which round-trips every track that has an artist, for
+# example "Beyonce - Halo - Live" comes back as artist "Beyonce", title
+# "Halo - Live". A track saved WITHOUT an artist whose title contains " - " (for
+# example "Hello - World") still comes back as artist "Hello", title "World".
+# That ambiguity cannot be removed without writing an empty artist as a leading
+# " - ", which other players would show literally, so the standard text is kept.
 
 from __future__ import annotations
 
@@ -47,9 +58,10 @@ def _parse_extinf(line: str) -> tuple[float, str | None]:
 
 
 def _split_name(display: str) -> tuple[str, str]:
-    """Split an "Artist - Title" name; without the separator the whole text is the title."""
-    if " - " in display:
-        artist, title = display.split(" - ", 1)
+    """Split an "Artist - Title" name on the FIRST " - " only; without the separator the whole text is the title."""
+    separator = " - "
+    if separator in display:
+        artist, title = display.split(separator, 1)
         return artist.strip(), title.strip()
     return "", display.strip()
 
