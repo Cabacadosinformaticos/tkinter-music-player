@@ -114,13 +114,29 @@ def _draw_stop(canvas, cx, cy, r, color, width, tags):
     _polygon(canvas, _rounded_points(cx - r * 0.72, cy - r * 0.72, cx + r * 0.72, cy + r * 0.72, r * 0.28), color, tags)
 
 
+def _shuffle_path(canvas, cx, cy, r, color, width, start_y, end_y, tags):
+    """One shuffle path: a short tail on the left, a diagonal through the
+    middle and a horizontal run that ends in a filled arrow head on the right."""
+    size = r * 0.5
+    left = cx - r * 0.95
+    tail = cx - r * 0.45
+    corner = cx + r * 0.1
+    right = cx + r * 0.95
+    _polyline(
+        canvas,
+        [(left, cy + start_y), (tail, cy + start_y), (corner, cy + end_y), (right, cy + end_y)],
+        color,
+        width,
+        tags,
+    )
+    _arrow_head(canvas, (right, cy + end_y), (1, 0), size, color, tags)
+
+
 def _draw_shuffle(canvas, cx, cy, r, color, width, tags):
-    """Two arrows crossing from the left side to the right side."""
-    for sign in (1, -1):
-        start = (cx - r, cy + sign * r * 0.5)
-        end = (cx + r * 0.85, cy - sign * r * 0.5)
-        _polyline(canvas, [start, end], color, width, tags)
-        _arrow_head(canvas, end, (end[0] - start[0], end[1] - start[1]), r * 0.5, color, tags)
+    """Two paths crossing in the middle, each ending in an arrow head on the right."""
+    offset = r * 0.5
+    _shuffle_path(canvas, cx, cy, r, color, width, -offset, offset, tags)
+    _shuffle_path(canvas, cx, cy, r, color, width, offset, -offset, tags)
 
 
 def _repeat_loop(canvas, cx, cy, r, color, width, tags):
