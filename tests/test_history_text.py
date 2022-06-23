@@ -104,6 +104,6 @@ def test_malformed_lines_are_skipped(tmp_path):
     assert entries[0].duration == pytest.approx(215.4)
 
 
-def test_describe_mentions_the_file(tmp_path):
+def test_describe_shows_the_folder_and_file(tmp_path):
     path = tmp_path / "history.txt"
-    assert str(path) in TextHistory(path).describe()
+    assert TextHistory(path).describe() == f"Text file: {path.parent.name}/history.txt"

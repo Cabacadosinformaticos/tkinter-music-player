@@ -72,5 +72,8 @@ class SqliteHistory(HistoryBackend):
         self._connection.close()
 
     def describe(self) -> str:
-        """Path of the database file that holds the history."""
-        return f"SQLite database: {self._target}"
+        """Folder and file name of the database that holds the history."""
+        if self._target == ":memory:":
+            return "SQLite database: in memory"
+        path = Path(self._target)
+        return f"SQLite database: {path.parent.name}/{path.name}"

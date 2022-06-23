@@ -84,6 +84,12 @@ def test_unicode_title_round_trip(tmp_path):
     assert history.entries()[0].title == "Canção - João"
 
 
-def test_describe_mentions_the_file(tmp_path):
+def test_describe_shows_the_folder_and_file(tmp_path):
     path = tmp_path / "history.db"
-    assert str(path) in SqliteHistory(path).describe()
+    assert SqliteHistory(path).describe() == f"SQLite database: {path.parent.name}/history.db"
+
+
+def test_describe_of_in_memory_database():
+    history = SqliteHistory(":memory:")
+    assert history.describe() == "SQLite database: in memory"
+    history.close()

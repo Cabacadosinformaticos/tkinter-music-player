@@ -75,5 +75,5 @@ class TextHistory(HistoryBackend):
             pass
 
     def describe(self) -> str:
-        """Path of the text file that holds the history."""
-        return f"Text file: {self.path}"
+        """Folder and file name of the text file that holds the history."""
+        return f"Text file: {self.path.parent.name}/{self.path.name}"
