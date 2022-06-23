@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
@@ -100,6 +101,23 @@ def test_with_fake_music_pygame_is_not_needed(monkeypatch):
 
 def test_missing_pygame_gives_player_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "pygame", None)
+    with pytest.raises(PlayerError, match="Audio device not available"):
+        AudioPlayer()
+
+
+def test_mixer_init_failure_gives_player_error(monkeypatch):
+    """A pygame whose mixer.init() fails (no sound card) becomes a friendly PlayerError."""
+
+    class FakeMixer:
+        @staticmethod
+        def init() -> None:
+            raise FakePygameError("no audio device found")
+
+    fake_pygame = types.ModuleType("pygame")
+    fake_pygame.mixer = FakeMixer
+    fake_pygame.error = FakePygameError
+    monkeypatch.setitem(sys.modules, "pygame", fake_pygame)
+
     with pytest.raises(PlayerError, match="Audio device not available"):
         AudioPlayer()
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
 
 from music_player.history.sqlite_backend import SqliteHistory
@@ -87,6 +88,24 @@ def test_unicode_title_round_trip(tmp_path):
 def test_describe_shows_the_folder_and_file(tmp_path):
     path = tmp_path / "history.db"
     assert SqliteHistory(path).describe() == f"SQLite database: {path.parent.name}/history.db"
+
+
+def test_entries_skips_rows_with_invalid_played_at(tmp_path):
+    """A row whose played_at cannot be parsed is skipped instead of breaking the whole list."""
+    path = tmp_path / "history.db"
+    history = SqliteHistory(path)
+    history.record("good", moment("2022-06-10T10:00:00"), 5.0)
+
+    raw = sqlite3.connect(path)
+    raw.execute(
+        "INSERT INTO plays (title, played_at, duration) VALUES (?, ?, ?)",
+        ("bad", "not-a-date", 1.0),
+    )
+    raw.commit()
+    raw.close()
+
+    assert [entry.title for entry in history.entries()] == ["good"]
+    history.close()
 
 
 def test_describe_of_in_memory_database():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -152,6 +153,22 @@ def test_save_is_atomic_and_leaves_no_temp_file(tmp_path):
     settings.save()
     assert list(tmp_path.glob("*.tmp")) == []
     assert json.loads(path.read_text(encoding="utf-8"))["theme"] == "light"
+
+
+def test_save_propagates_oserror_and_leaves_no_temp_file(tmp_path, monkeypatch):
+    """When os.replace fails the OSError reaches the caller and the temporary file is removed."""
+    path = tmp_path / "settings.json"
+
+    def fail_replace(source, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    with pytest.raises(OSError):
+        config.Settings(path).save()
+
+    assert not path.exists()
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_data_dir_honours_environment_and_creates_folder(tmp_path, monkeypatch):
