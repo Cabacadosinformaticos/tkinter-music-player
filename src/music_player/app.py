@@ -284,15 +284,29 @@ class PlayerApp:
         self.album_label.grid(row=3, column=0, sticky="ew", pady=(0, PAD))
         self.album_label.bind("<Configure>", self._on_album_resize)
 
-        # Seek bar: elapsed time, slider, total time.
+        # Seek bar: elapsed time, slider, total time. The time labels take the
+        # muted colour as an explicit option so they match the artist and album
+        # labels and can be refreshed with the palette.
         seek_row = ttk.Frame(self.left)
         seek_row.grid(row=4, column=0, sticky="ew")
         seek_row.columnconfigure(1, weight=1)
-        self.elapsed_label = ttk.Label(seek_row, style="Time.TLabel", width=6, anchor="e")
+        self.elapsed_label = ttk.Label(
+            seek_row,
+            style="Time.TLabel",
+            width=6,
+            anchor="e",
+            foreground=theme.current_palette()["text_muted"],
+        )
         self.elapsed_label.grid(row=0, column=0, padx=(0, GAP))
         self.seek_slider = Slider(seek_row, on_commit=self._on_seek)
         self.seek_slider.grid(row=0, column=1, sticky="ew")
-        self.total_label = ttk.Label(seek_row, style="Time.TLabel", width=6, anchor="w")
+        self.total_label = ttk.Label(
+            seek_row,
+            style="Time.TLabel",
+            width=6,
+            anchor="w",
+            foreground=theme.current_palette()["text_muted"],
+        )
         self.total_label.grid(row=0, column=2, padx=(GAP, 0))
 
         # Transport buttons: shuffle, previous, play or pause, next, repeat and,
@@ -455,7 +469,12 @@ class PlayerApp:
         index = int(self.settings["last_index"])
         if 0 <= index < len(self.playlist):
             self.playlist.select(index)
-        self._update_song_labels(self.playlist.current_track())
+        track = self.playlist.current_track()
+        self._update_song_labels(track)
+        if track is not None:
+            # The restored song only shows as selected, so its cover has to be
+            # loaded here too, the same way _play_index does.
+            self.cover.set_cover(metadata.read_cover(track.path))
 
     def _select_row(self, index: int) -> None:
         """Select one row of the table, when the current search shows it."""
@@ -740,7 +759,10 @@ class PlayerApp:
         palette = theme.current_palette()
         color = palette["text_muted"] if self._placeholder_on else palette["text"]
         try:
-            ttk.Style(master=self.root).configure("Search.TEntry", foreground=color)
+            # The colour goes on the entry itself, not only on its style: this
+            # way it is really applied on screen and can be read back with
+            # cget("foreground") after a theme switch.
+            self.search_entry.configure(foreground=color)
         except tk.TclError:
             # A ttk theme that refuses the option keeps its own text colour.
             pass
@@ -1376,6 +1398,9 @@ class PlayerApp:
         self._update_mode_buttons()
         # The search text follows the theme too, muted while the placeholder shows.
         self._style_search_entry()
+        # The elapsed and total labels keep the muted colour of the new palette.
+        for label in (self.elapsed_label, self.total_label):
+            label.configure(foreground=palette["text_muted"])
         self.tree.tag_configure("playing", foreground=palette["accent"])
         # The shortcuts window, when open, follows the theme as well.
         if self._shortcuts_window is not None and self._shortcuts_window.winfo_exists():
