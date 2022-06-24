@@ -467,6 +467,10 @@ class PlayerApp:
             return
         self.playlist.add_many([metadata.read_track(path) for path in paths])
         index = int(self.settings["last_index"])
+        # Some files may have vanished since the settings were saved: keep the
+        # index inside the songs that are really there.
+        if index >= len(self.playlist):
+            index = len(self.playlist) - 1
         if 0 <= index < len(self.playlist):
             self.playlist.select(index)
         track = self.playlist.current_track()
@@ -523,11 +527,12 @@ class PlayerApp:
             names = sorted(os.listdir(folder))
         except OSError:
             return
-        paths = [
-            os.path.join(folder, name)
-            for name in names
-            if name.lower().endswith(AUDIO_EXTENSIONS)
-        ]
+        # Only real files count: a folder named like "x.mp3" is ignored.
+        paths = []
+        for name in names:
+            path = os.path.join(folder, name)
+            if name.lower().endswith(AUDIO_EXTENSIONS) and os.path.isfile(path):
+                paths.append(path)
         self._add_paths(paths)
 
     def _add_paths(self, paths) -> int:
@@ -550,13 +555,24 @@ class PlayerApp:
     def _remember_folder(self, folder: str) -> None:
         """Remember the folder used by the dialogs and save the settings."""
         self.settings["music_dir"] = folder
-        self.settings.save()
+        self._save_settings()
 
     def _remember_playlist(self) -> None:
-        """Store the songs and the selected one, then write the settings file."""
-        self.settings["last_playlist"] = [track.path for track in self.playlist.tracks]
-        index = self._selected_index()
-        self.settings["last_index"] = index if index is not None else self.playlist.current
+        """Store the songs and the selected one, then write the settings file.
+
+        Files that are no longer on disk are dropped here, so last_index still
+        points at the same song inside the saved list after a restart.
+        """
+        songs = [track.path for track in self.playlist.tracks]
+        selected = self._selected_index()
+        if selected is None:
+            selected = self.playlist.current
+        kept = [index for index, path in enumerate(songs) if os.path.isfile(path)]
+        self.settings["last_playlist"] = [songs[index] for index in kept]
+        if selected in kept:
+            self.settings["last_index"] = kept.index(selected)
+        else:
+            self.settings["last_index"] = -1
         self._save_settings()
 
     def _save_settings(self) -> None:
@@ -837,6 +853,9 @@ class PlayerApp:
             text=format_duration(track.duration) if track.duration > 0 else "--:--"
         )
         self._highlight_playing()
+        # The selection follows the song that really started, when its row is
+        # visible under the current search.
+        self._select_row(index)
         # The song really started, so this play is saved; pausing, resuming and
         # seeking never land here.
         self._record_play(track)
@@ -884,8 +903,12 @@ class PlayerApp:
             self.play_button.set_kind("pause")
             self._highlight_playing()
             return
-        # Stopped: play the selected row, or the first song.
+        # Stopped: play the selected row, then the song that was stopped, then
+        # the first song. Using playlist.current keeps the play button on the
+        # song reached with Next or Previous, even when the table selection moved.
         index = self._selected_index()
+        if index is None and 0 <= self.playlist.current < len(self.playlist):
+            index = self.playlist.current
         if index is None:
             if len(self.playlist) == 0:
                 self._update_footer()
@@ -931,7 +954,7 @@ class PlayerApp:
         """Switch shuffle on or off and remember the choice."""
         self.playlist.shuffle = not self.playlist.shuffle
         self.settings["shuffle"] = self.playlist.shuffle
-        self.settings.save()
+        self._save_settings()
         self._update_mode_buttons()
 
     def _on_repeat(self) -> None:
@@ -940,7 +963,7 @@ class PlayerApp:
         position = modes.index(self.playlist.repeat)
         self.playlist.repeat = modes[(position + 1) % len(modes)]
         self.settings["repeat"] = self.playlist.repeat
-        self.settings.save()
+        self._save_settings()
         self._update_mode_buttons()
 
     def _update_mode_buttons(self) -> None:
@@ -1041,7 +1064,7 @@ class PlayerApp:
         """Mute or unmute, keep the slider in place and remember the choice."""
         self._muted = bool(muted)
         self.settings["muted"] = self._muted
-        self.settings.save()
+        self._save_settings()
         if self.player is not None:
             if self._muted:
                 self.player.set_volume(0.0)
@@ -1088,6 +1111,23 @@ class PlayerApp:
         # otherwise toggle the selection of the row under the cursor.
         self.tree.bind("<space>", self._on_tree_space)
 
+    def _event_from_main_window(self, event) -> bool:
+        """True when a key event came from the main window and not from a dialog.
+
+        The shortcuts are bound with bind_all, so without this check they would
+        also fire while the modal Settings window or another popup has the focus.
+        """
+        if event is None:
+            return True
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return True
+        try:
+            return widget.winfo_toplevel() is self.root
+        except tk.TclError:
+            # The widget was destroyed while the event was on its way.
+            return True
+
     def _focus_class(self) -> str:
         """Widget class of the focused widget, or an empty string when there is none."""
         try:
@@ -1111,6 +1151,8 @@ class PlayerApp:
 
     def _on_space_key(self, _event=None) -> str | None:
         """Space: play or pause, everywhere except in a text field."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_play_pause()
@@ -1123,6 +1165,8 @@ class PlayerApp:
 
     def _on_left_key(self, _event=None) -> str | None:
         """Left arrow: previous song, unless the table or a text field has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing() or self._tree_has_focus():
             return None
         self._on_previous()
@@ -1130,6 +1174,8 @@ class PlayerApp:
 
     def _on_right_key(self, _event=None) -> str | None:
         """Right arrow: next song, unless the table or a text field has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing() or self._tree_has_focus():
             return None
         self._on_next()
@@ -1137,6 +1183,8 @@ class PlayerApp:
 
     def _on_up_key(self, _event=None) -> str | None:
         """Up arrow: volume up, unless the table or a text field has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing() or self._tree_has_focus():
             return None
         self._volume_step(VOLUME_STEP)
@@ -1144,6 +1192,8 @@ class PlayerApp:
 
     def _on_down_key(self, _event=None) -> str | None:
         """Down arrow: volume down, unless the table or a text field has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing() or self._tree_has_focus():
             return None
         self._volume_step(-VOLUME_STEP)
@@ -1151,6 +1201,8 @@ class PlayerApp:
 
     def _on_ctrl_left_key(self, _event=None) -> str | None:
         """Ctrl+Left: previous song, also while the table has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_previous()
@@ -1158,6 +1210,8 @@ class PlayerApp:
 
     def _on_ctrl_right_key(self, _event=None) -> str | None:
         """Ctrl+Right: next song, also while the table has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_next()
@@ -1165,6 +1219,8 @@ class PlayerApp:
 
     def _on_ctrl_up_key(self, _event=None) -> str | None:
         """Ctrl+Up: volume up, also while the table has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._volume_step(VOLUME_STEP)
@@ -1172,33 +1228,45 @@ class PlayerApp:
 
     def _on_ctrl_down_key(self, _event=None) -> str | None:
         """Ctrl+Down: volume down, also while the table has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._volume_step(-VOLUME_STEP)
         return "break"
 
-    def _on_add_songs_key(self, _event=None) -> str:
+    def _on_add_songs_key(self, _event=None) -> str | None:
         """Ctrl+O: open the add songs dialog."""
+        if not self._event_from_main_window(_event):
+            return None
         self._add_songs()
         return "break"
 
-    def _on_add_folder_key(self, _event=None) -> str:
+    def _on_add_folder_key(self, _event=None) -> str | None:
         """Ctrl+Shift+O: open the add folder dialog."""
+        if not self._event_from_main_window(_event):
+            return None
         self._add_folder()
         return "break"
 
-    def _on_focus_search_key(self, _event=None) -> str:
+    def _on_focus_search_key(self, _event=None) -> str | None:
         """Ctrl+F: put the focus in the search box."""
+        if not self._event_from_main_window(_event):
+            return None
         self.search_entry.focus_set()
         return "break"
 
-    def _on_settings_key(self, _event=None) -> str:
+    def _on_settings_key(self, _event=None) -> str | None:
         """Ctrl+,: open the settings dialog."""
+        if not self._event_from_main_window(_event):
+            return None
         self._open_settings()
         return "break"
 
     def _on_delete_key(self, _event=None) -> str | None:
         """Delete: remove the selected song when the table has the focus."""
+        if not self._event_from_main_window(_event):
+            return None
         if not self._tree_has_focus():
             return None
         self._remove_selected()
@@ -1206,6 +1274,8 @@ class PlayerApp:
 
     def _on_mute_key(self, _event=None) -> str | None:
         """M: mute or unmute, everywhere except in a text field."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_volume_button()
@@ -1213,6 +1283,8 @@ class PlayerApp:
 
     def _on_shuffle_key(self, _event=None) -> str | None:
         """S: turn shuffle on or off, everywhere except in a text field."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_shuffle()
@@ -1220,6 +1292,8 @@ class PlayerApp:
 
     def _on_repeat_key(self, _event=None) -> str | None:
         """R: cycle the repeat mode, everywhere except in a text field."""
+        if not self._event_from_main_window(_event):
+            return None
         if self._is_typing():
             return None
         self._on_repeat()
@@ -1369,7 +1443,7 @@ class PlayerApp:
         self._apply_palette()
         self.view_menu.entryconfigure(self.theme_entry, label=self._theme_menu_label())
         self.settings["theme"] = theme.current_theme()
-        self.settings.save()
+        self._save_settings()
 
     def _apply_palette(self) -> None:
         """Repaint the root window, the canvas widgets and the playing row tag."""
@@ -1408,6 +1482,9 @@ class PlayerApp:
         # The statistics window, when open, follows the theme as well.
         if self._stats_window is not None and self._stats_window.winfo_exists():
             self._stats_window.apply_palette()
+        # The play history window, when open, follows the theme as well.
+        if self._history_window is not None and self._history_window.winfo_exists():
+            self._history_window.apply_palette()
 
     def _on_close(self) -> None:
         """Cancel the timer, stop the music, save the whole session and close the window."""
