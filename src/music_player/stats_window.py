@@ -13,7 +13,7 @@ from datetime import date
 from tkinter import ttk
 
 from . import theme
-from .history import HistoryBackend, HistoryEntry, HistoryError
+from .history import HistoryBackend, HistoryEntry
 from .history.stats import listening_by_day, top_songs, total_listening_seconds
 
 # Size of the window when it opens and the smallest size the user may drag it to.
@@ -292,9 +292,10 @@ class StatsWindow(tk.Toplevel):
         """Read the plays again and redraw the cards and both charts."""
         try:
             entries = self.history.entries()
-        except HistoryError as error:
-            # A backend that cannot be read shows the message in the danger
-            # colour instead of the charts, never as a crash.
+        except Exception as error:
+            # Any backend or OS problem shows the message in the danger colour
+            # instead of the charts, never as a crash: sqlite3 errors are not
+            # HistoryError.
             self._summary = None
             self._show_error(str(error))
             return

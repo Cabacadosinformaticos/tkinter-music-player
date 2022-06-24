@@ -29,6 +29,9 @@ HISTORY_OPTIONS = (
 # The theme choices shown in the appearance section.
 THEME_OPTIONS = (("dark", "Dark"), ("light", "Light"))
 
+# How many times the modal grab is retried while the window is not mapped yet.
+MODAL_RETRIES = 5
+
 
 class SettingsDialog(tk.Toplevel):
     """Modal window with the play history and theme settings."""
@@ -144,13 +147,21 @@ class SettingsDialog(tk.Toplevel):
         y = master.winfo_rooty() + (master.winfo_height() - height) // 2
         self.geometry(f"{WIDTH}x{height}+{max(0, x)}+{max(0, y)}")
 
-    def _make_modal(self) -> None:
+    def _make_modal(self, attempts: int = 0) -> None:
         """Hold the keyboard and mouse to this window, once it is on screen."""
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            # The window was closed before this retry ran.
+            return
         try:
             self.grab_set()
         except tk.TclError:
-            # The window is not mapped yet: try again as soon as Tk is idle.
-            self.after(100, self._make_modal)
+            # The window is not mapped yet: try again a few times as soon as Tk
+            # is idle, then give up instead of retrying forever.
+            if attempts < MODAL_RETRIES:
+                self.after(100, lambda: self._make_modal(attempts + 1))
 
     # ------------------------------------------------------------------
     # Actions

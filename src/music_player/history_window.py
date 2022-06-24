@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from . import theme
-from .history import HistoryBackend, HistoryError
+from .history import HistoryBackend
 from .playlist import format_duration
 
 # Size of the window when it opens and the smallest size the user may drag it to.
@@ -48,7 +48,8 @@ class HistoryWindow(tk.Toplevel):
         frame.rowconfigure(2, weight=1)
 
         # Header: the window name and where the history is stored.
-        ttk.Label(frame, text="Play history", style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        self.title_label = ttk.Label(frame, text="Play history", style="Title.TLabel")
+        self.title_label.grid(row=0, column=0, sticky="w")
         self.where_label = ttk.Label(frame, style="Muted.TLabel")
         self.where_label.grid(row=1, column=0, sticky="w", pady=(0, GAP))
         self.where_label.configure(text=self.history.describe())
@@ -94,9 +95,9 @@ class HistoryWindow(tk.Toplevel):
         self.tree.delete(*self.tree.get_children())
         try:
             entries = self.history.entries()
-        except HistoryError as error:
-            # A backend that cannot be read shows the message in the footer
-            # instead of breaking the window.
+        except Exception as error:
+            # Any backend or OS problem shows the message in the footer instead
+            # of breaking the window: sqlite3 errors are not HistoryError.
             self.count_label.configure(text=str(error), foreground=theme.current_palette()["danger"])
             return
         for entry in entries:
@@ -120,6 +121,14 @@ class HistoryWindow(tk.Toplevel):
         """Footer text: "23 plays", or "1 play" for a single one."""
         word = "play" if count == 1 else "plays"
         return f"{count} {word}"
+
+    def apply_palette(self) -> None:
+        """Repaint the window and its header and footer labels with the current theme."""
+        palette = theme.current_palette()
+        self.configure(bg=palette["bg"])
+        self.title_label.configure(background=palette["bg"], foreground=palette["text"])
+        for label in (self.where_label, self.count_label):
+            label.configure(background=palette["bg"], foreground=palette["text_muted"])
 
     def _on_clear(self) -> None:
         """Ask for confirmation and then delete every saved play."""
